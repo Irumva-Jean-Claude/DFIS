@@ -48,7 +48,7 @@ async def security_headers(request: Request, call_next):
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["Referrer-Policy"] = "no-referrer"
     if not request.url.path.startswith(("/docs", "/redoc", "/openapi")):
-        resp.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'"
+        resp.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-ancestors 'none'"
     if request.url.path.startswith(("/js/", "/css/", "/index.html", "/")):
         resp.headers["Cache-Control"] = "no-cache"  # frontend updates apply on plain reload
     return resp
