@@ -95,12 +95,25 @@ pages.evidence = async v => {
   if ($('#up')) $('#up').onclick = () => modal('Register evidence', field('Case', 'case_id', { type: 'select', req: 1, opts: cs.filter(c => !['closed', 'archived'].includes(c.status)).map(c => [c.id, c.ref + ' - ' + c.title]) }) + field('Evidence type', 'evidence_type', { type: 'select', opts: ['document', 'image', 'archive', 'system_log', 'text', 'other'] }) + field('File', 'file', { type: 'file', req: 1 }) + field('Source', 'source', { req: 1 }) + field('Acquisition method', 'acquisition_method', { req: 1 }) + field('Acquisition date/time (ISO, e.g. 2026-10-19T10:00:00Z)', 'acquisition_date') + field('Submitted by', 'submitted_by', { req: 1 }) + field('Received by', 'received_by', { req: 1 }) + field('Description', 'description', { type: 'textarea' }) + '<p class="muted">The original is stored as a read-only reference copy and hashed with SHA-256 during ingestion.</p><button class="btn primary">Upload</button>', async (f, fd) => { await api('/evidence', { method: 'POST', form: fd }); toast('Evidence registered and hashed'); load(); });
   load();
 };
+const imgPrev = (id, mime, cls = 'evimg') => (mime || '').startsWith('image/') ? `<img class="${cls}" data-prev="${id}" alt="Evidence image preview">` : '';
+// load previews as authenticated blobs (an <img src> request cannot send the JWT)
+async function loadPreviews(root = document) {
+  for (const img of root.querySelectorAll('img[data-prev]')) {
+    try {
+      const r = await api(`/evidence/${img.dataset.prev}/preview`, { raw: true });
+      const url = URL.createObjectURL(await r.blob());
+      img.src = url; img.onload = () => URL.revokeObjectURL(url);
+    } catch { img.style.display = 'none'; }
+  }
+}
+
 async function evDetail(id, after) {
   const e = await api('/evidence/' + id), ic = await api('/integrity/' + id);
-  const m = modal(e.ref + ' - ' + e.original_filename, `${kv({ Case: e.case_ref, Type: e.evidence_type, Detected_MIME: e.mime, Size: e.size + ' bytes', 'SHA-256 (reference)': e.sha256, 'Hash calculated': fmt(e.hashed_at), Source: e.source, 'Acquisition method': e.acquisition_method, 'Acquisition time': e.acquisition_date, 'Submitted by': e.submitted_by, 'Received by': e.received_by, Custodian: e.custodian, Status: e.status, Description: e.description })}
+  const m = modal(e.ref + ' - ' + e.original_filename, `${imgPrev(id, e.mime)}${kv({ Case: e.case_ref, Type: e.evidence_type, Detected_MIME: e.mime, Size: e.size + ' bytes', 'SHA-256 (reference)': e.sha256, 'Hash calculated': fmt(e.hashed_at), Source: e.source, 'Acquisition method': e.acquisition_method, 'Acquisition time': e.acquisition_date, 'Submitted by': e.submitted_by, 'Received by': e.received_by, Custodian: e.custodian, Status: e.status, Description: e.description })}
   <div class="row"><button type="button" class="btn primary" id="vf">Verify integrity</button><button type="button" class="btn" id="dl">Download original</button></div><div id="vr"></div><h3>Integrity history</h3><div id="ih">${ihtml(ic)}</div>`, null, true);
   m.bg.querySelector('#vf').onclick = guard(async () => { const r = await api(`/integrity/${id}/verify`, { method: 'POST' }); m.bg.querySelector('#vr').innerHTML = `<div class="note">${badge(r.result)} ${esc(r.message)}</div>`; m.bg.querySelector('#ih').innerHTML = ihtml(await api('/integrity/' + id)); });
   m.bg.querySelector('#dl').onclick = guard(() => download(`/evidence/${id}/download`, e.original_filename));
+  loadPreviews(m.bg);
 }
 const ihtml = ic => table([['Time', r => fmt(r.at)], ['Result', r => badge(r.result)], ['By', r => esc(r.by_user)], ['Calculated', r => `<code>${esc(r.calculated || '-')}</code>`]], ic, 'Not verified yet.');
 
@@ -144,10 +157,11 @@ pages.custody = async v => {
   const load = guard(async () => {
     const id = $('#ev').value; if (!id) return $('#out').innerHTML = '<div class="empty">No evidence.</div>';
     const r = await api('/chain-of-custody/' + id), dir = can('custody:transfer') ? await api('/users/directory') : [];
-    $('#out').innerHTML = `<div class="card"><h2>${esc(r.evidence.ref)} - ${esc(r.evidence.original_filename)}</h2>${kv({ Case: r.evidence.case_ref, 'Current custodian': r.evidence.custodian, Status: r.evidence.status, 'SHA-256': r.evidence.sha256 })}</div>
+    $('#out').innerHTML = `<div class="card"><h2>${esc(r.evidence.ref)} - ${esc(r.evidence.original_filename)}</h2>${imgPrev(id, r.evidence.mime, 'evimg custody-img')}${kv({ Case: r.evidence.case_ref, 'Current custodian': r.evidence.custodian, Status: r.evidence.status, 'SHA-256': r.evidence.sha256 })}</div>
     <div class="card">${table([['Time (UTC)', e => fmt(e.created_at)], ['Action', e => badge(e.action)], ['From', e => esc(e.from_user || '-')], ['To', e => esc(e.to_user || '-')], ['By', e => esc(e.by_user)], ['Reason / notes', e => esc(e.reason + (e.notes ? ' | ' + e.notes : ''))], ['Receipt', e => e.ack_status ? (e.ack_status === 'pending' && e.to_user_id === ME.id ? `<button class="btn sm primary" data-a="${e.id}">Acknowledge</button>` : badge(e.ack_status)) : '-']], r.events)}</div>
     ${can('custody:transfer') ? `<div class="card no-print"><h2>Transfer custody</h2><form id="tf"><div class="row"><select name="to_user_id">${dir.filter(u => u.id !== ME.id).map(u => `<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select><input name="reason" placeholder="Reason" required><input name="notes" placeholder="Notes"><button class="btn primary">Transfer</button></div></form></div>` : ''}`;
     $('#out').querySelectorAll('[data-a]').forEach(b => b.onclick = guard(async () => { await api(`/chain-of-custody/${id}/acknowledge/${b.dataset.a}`, { method: 'POST' }); toast('Receipt acknowledged'); load(); }));
+    loadPreviews($('#out'));
     if ($('#tf')) $('#tf').onsubmit = guard(async e => { e.preventDefault(); await api(`/chain-of-custody/${id}/transfer`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('Transfer recorded - awaiting acknowledgment'); load(); });
   });
   $('#ev').onchange = load; $('#pr').onclick = () => window.print(); load();

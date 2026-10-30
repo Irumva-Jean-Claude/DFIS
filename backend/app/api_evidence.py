@@ -145,6 +145,23 @@ def get_one(eid: str, u=Depends(require("evidence:read")), db=Depends(get_db)):
     return ev_out(db, get_evidence(db, u, eid))
 
 
+@evidence_r.get("/{eid}/preview")
+def preview(eid: str, u=Depends(require("evidence:read")), db=Depends(get_db)):
+    """Serve an image evidence inline so the frontend can display it.
+    Read-only, correct MIME type, never executed; audited like a download."""
+    e = get_evidence(db, u, eid)
+    if not (e.mime or "").startswith("image/"):
+        raise HTTPException(415, "Only image evidence can be previewed")
+    p = orig_path(e)
+    if not p.exists():
+        raise HTTPException(404, "Stored file is missing")
+    audit(db, u, "evidence_previewed", "evidence", e.id, ref=e.ref)
+    return FileResponse(p, media_type=e.mime,
+                        headers={"X-Content-Type-Options": "nosniff",
+                                 "Content-Disposition": f"inline; filename=\"{e.original_filename}\"",
+                                 "Cache-Control": "no-store"})
+
+
 @evidence_r.get("/{eid}/download")
 def download(eid: str, u=Depends(require("evidence:read")), db=Depends(get_db)):
     e = get_evidence(db, u, eid)
