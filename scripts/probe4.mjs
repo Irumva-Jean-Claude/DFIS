@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({ headless: false });
+const page = await b.newPage();
+page.on('response', r => { if (r.url().includes('/api/')) console.log('[api]', r.status(), r.request().method(), r.url()); });
+await page.goto('http://127.0.0.1:8000', { waitUntil: 'domcontentloaded' });
+await page.fill('#loginForm input[name=username]', 'irumva');
+await page.fill('#loginForm input[name=password]', 'irumvajc123');
+await page.click('#loginForm button[type=submit]');
+await page.waitForTimeout(2500);
+const state = await page.evaluate(() => ({ mfaClass: document.querySelector('#mfaForm').className, loginClass: document.querySelector('#login').className, loginErr: document.querySelector('#loginErr').textContent }));
+console.log('STATE:', JSON.stringify(state));
+await b.close();

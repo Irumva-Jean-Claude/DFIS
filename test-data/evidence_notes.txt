@@ -1,0 +1,10 @@
+Investigation notes - reference material
+========================================
+
+Case: unauthorized access suspected on workstation WS-01.
+Collected: /var/log/auth.log excerpt, user profile listing, browser history CSV.
+
+Analyst reminders:
+- Times in the auth log are local time on WS-01 (UTC+3); confirm clock skew before relying on ordering.
+- Do not analyze originals; work only on DFIS working copies.
+- Hash all exported artifacts before moving them off the workstation.

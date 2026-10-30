@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DFIS - Digital Forensics Investigation System</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="toasts" aria-live="polite"></div>
+<div id="login" class="login hidden">
+  <form id="loginForm" class="card login-card">
+    <div class="brand big"><span class="logo">&#9919;</span> DFIS</div>
+    <p class="muted">Digital Forensics Investigation System<br><small>Academic prototype - authorized use only</small></p>
+    <label>Username<input name="username" autocomplete="username" required></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit">Sign in</button>
+    <p id="loginErr" class="error"></p>
+  </form>
+</div>
+<form id="mfaForm" class="login hidden">
+  <div class="card login-card">
+    <div class="brand big"><span class="logo">&#9919;</span> DFIS</div>
+    <p class="muted">Two-factor authentication is enabled for this account.<br>Enter the 6-digit code from your authenticator app.</p>
+    <label>Authenticator code<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
+    <button class="btn primary" type="submit">Verify</button>
+    <button class="btn ghost" type="button" id="mfaRecovery">Use a recovery code</button>
+    <p id="mfaErr" class="error"></p>
+  </div>
+</form>
+<div id="app" class="app hidden">
+  <aside id="sidebar" class="sidebar"><div class="brand"><span class="logo">&#9919;</span><span class="label"> DFIS</span></div><nav id="nav"></nav></aside>
+  <div class="main">
+    <header class="topbar">
+      <button id="toggle" class="btn ghost" aria-label="Toggle sidebar">&#9776;</button>
+      <div class="spacer"></div>
+      <span id="whoami" class="muted"></span>
+      <button id="pwBtn" class="btn ghost">Password</button>
+      <button id="mfaBtn" class="btn ghost hidden">2FA</button>
+      <button id="logout" class="btn ghost">Logout</button>
+    </header>
+    <div class="banner">Prototype for academic use. Not forensically certified, legally validated or court-ready. Use only on evidence you are authorized to examine.</div>
+    <main id="view" tabindex="-1"></main>
+  </div>
+</div>
+<script src="/js/app.js"></script>
+</body>
+</html>

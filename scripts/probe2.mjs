@@ -1,0 +1,14 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({ executablePath: process.env.PW_EXECUTABLE });
+const page = await b.newPage();
+await page.goto('http://localhost:8000', { waitUntil: 'domcontentloaded' });
+await page.fill('#loginForm input[name=username]', 'irumva');
+await page.fill('#loginForm input[name=password]', 'irumvajc123');
+await page.click('#loginForm button[type=submit]');
+await page.waitForSelector('#mfaForm:not(.hidden)', { timeout: 8000 });
+const info = await page.evaluate(() => { const el = document.querySelector('#mfaForm'); const r = el.getBoundingClientRect(); return { cls: el.className, w: r.width, h: r.height, top: r.top, vh: window.innerHeight, disp: getComputedStyle(el).display }; });
+console.log('INFO:', JSON.stringify(info));
+await page.waitForTimeout(1000);
+const info2 = await page.evaluate(() => { const el = document.querySelector('#mfaForm'); const r = el.getBoundingClientRect(); return { cls: el.className, w: r.width, h: r.height, top: r.top, vh: window.innerHeight, disp: getComputedStyle(el).display }; });
+console.log('INFO2:', JSON.stringify(info2));
+await b.close();

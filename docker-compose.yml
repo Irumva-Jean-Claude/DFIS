@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dfis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_dev_only}
+      POSTGRES_DB: dfis
+    volumes: [pgdata:/var/lib/postgresql/data]
+  app:
+    build: .
+    depends_on: [db]
+    ports: ["8000:8000"]
+    environment:
+      DFIS_DATABASE_URL: postgresql+psycopg2://dfis:${POSTGRES_PASSWORD:-change_me_dev_only}@db:5432/dfis
+      DFIS_SECRET_KEY: ${DFIS_SECRET_KEY:?set DFIS_SECRET_KEY in .env}
+      DFIS_ADMIN_PASSWORD: ${DFIS_ADMIN_PASSWORD:-}
+    volumes: [evidence:/data]
+volumes: {pgdata: {}, evidence: {}}

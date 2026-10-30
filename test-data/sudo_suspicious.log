@@ -1,0 +1,6 @@
+2026-10-25 10:00:00 srv01 systemd[1]: Started Daily Cleanup of Temporary Directories.
+2026-10-25 10:02:00 srv01 useradd[3001]: new group added to group database: name=backupops, GID=1005
+2026-10-25 10:03:00 srv01 su: mdoe : authentication failure for user root
+2026-10-25 10:05:00 srv01 sudo:   mdoe : TTY=pts/1 ; COMMAND=/sbin/setuid /usr/bin/id
+2026-10-25 10:07:00 srv01 sshd[3120]: Accepted publickey for mdoe from 192.168.1.10 port 52200 ssh2
+2026-10-25 10:10:00 srv01 kernel: audit: type=1400 apparmor="DENIED" operation="open" profile="nginx"

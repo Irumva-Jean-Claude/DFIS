@@ -1,0 +1,5 @@
+this line has no timestamp at all and should be reported as malformed
+2026-13-45 99:99:99 broken date line should also fail parsing
+{"timestamp": "not-a-date", "message": "json line with unparseable timestamp"}
+{"broken json line without closing brace
+2026-10-25 11:00:00 web01 nginx[80]: GET /index.html 200

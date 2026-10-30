@@ -1,0 +1,12 @@
+.env
+backend/data/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.venv-linux/
+node_modules/
+*.png
+*.jpg
+login_qa.mjs
+_run_login_qa.mjs

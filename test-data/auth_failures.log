@@ -1,0 +1,9 @@
+2026-10-25 09:01:02 ws01 sshd[2201]: Failed password for jsmith from 203.0.113.7 port 41002 ssh2
+2026-10-25 09:01:35 ws01 sshd[2201]: Failed password for jsmith from 203.0.113.7 port 41024 ssh2
+2026-10-25 09:02:10 ws01 sshd[2201]: Failed password for jsmith from 203.0.113.7 port 41050 ssh2
+2026-10-25 09:02:44 ws01 sshd[2201]: Failed password for jsmith from 203.0.113.7 port 41071 ssh2
+2026-10-25 09:03:20 ws01 sshd[2201]: Failed password for invalid user admin from 203.0.113.7 port 41098 ssh2
+2026-10-25 09:04:05 ws01 sshd[2201]: Failed password for jsmith from 203.0.113.7 port 41120 ssh2
+2026-10-25 09:04:40 ws01 sshd[2203]: Accepted password for jsmith from 10.0.0.24 port 51000 ssh2
+2026-10-25 09:05:10 ws01 sudo: jsmith : TTY=pts/0 ; PWD=/home/jsmith ; COMMAND=/bin/cat /etc/shadow
+2026-10-25 09:06:00 ws01 cron[900]: (root) CMD (/usr/bin/backup.sh)

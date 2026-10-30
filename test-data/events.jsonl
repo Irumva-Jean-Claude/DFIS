@@ -1,0 +1,5 @@
+{"timestamp": "2026-10-25T06:00:00Z", "event_type": "auth_success", "source": "app01", "user": "rjones", "message": "login successful for rjones from 10.1.1.5"}
+{"timestamp": "2026-10-25T09:00:00+03:00", "event_type": "auth_failure", "source": "app01", "user": "rjones", "message": "authentication failed for rjones from 10.1.1.5"}
+{"timestamp": "2026-10-25T07:15:00Z", "source": "db01", "user": "svc_backup", "message": "backup job completed in 412s"}
+{"time": "2026-10-25 07:30:00", "host": "db01", "user": "svc_backup", "message": "user svc_backup: session opened for user root"}
+{"timestamp": "2026-10-25T08:00:00Z", "event_type": "general", "source": "app01", "message": "nightly report generation finished"}
