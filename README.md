@@ -3,14 +3,26 @@
 Working web app: FastAPI backend + SQLAlchemy (SQLite by default, PostgreSQL supported) + a dependency-free
 frontend (HTML/CSS/vanilla JS, served by the backend). **Not forensically certified, legally validated or court-ready.**
 
-## Quick start (no Docker)
+## Quick start (no Docker) — team members, one command
+
+In a **PowerShell** terminal at the project root:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1        # once: venv + deps + .env
+powershell -ExecutionPolicy Bypass -File scripts\start_server.ps1 # every time: run server
+```
+Then open http://localhost:8000 and log in with the shared admin credentials from `.env`
+(`DFIS_ADMIN_USERNAME` / `DFIS_ADMIN_PASSWORD`). Stop the server with Ctrl+C.
+
+<details><summary>Manual steps (any OS)</summary>
+
 ```bash
 cd dfis
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r backend/requirements.txt
-cp .env.example .env                                   # optional; edit values
+cp .env.example .env                                   # Windows PowerShell: Copy-Item .env.example .env
 uvicorn backend.app.main:app --reload
 ```
+</details>
 Open http://localhost:8000 . On first start the console prints the initial admin login
 (username `admin`, random password, shown once) unless `DFIS_ADMIN_PASSWORD` is set. You must change it at first login.
 API docs (OpenAPI): http://localhost:8000/docs
