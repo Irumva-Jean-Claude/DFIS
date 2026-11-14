@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from . import config
-from .db import Base, engine, SessionLocal, User
+from .db import Base, engine, SessionLocal, User, _ensure_triggers_after_create
 from .security import hash_pw, audit
 from .api_core import auth_r, users_r, cases_r, dash_r, audit_r, settings_r
 from .api_evidence import evidence_r, integrity_r, custody_r
@@ -22,6 +22,7 @@ for r in (auth_r, users_r, cases_r, dash_r, audit_r, settings_r, evidence_r, int
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(engine)
+    _ensure_triggers_after_create(engine)  # install append-only RAISE triggers once tables exist
     # lightweight migration for databases created before MFA support
     with engine.connect() as conn:
         cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(users)")] if engine.dialect.name == "sqlite" else None
