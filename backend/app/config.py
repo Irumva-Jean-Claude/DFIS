@@ -46,4 +46,14 @@ ADMIN_PASSWORD = E("DFIS_ADMIN_PASSWORD")  # if unset, a random one is printed o
 ALLOWED_EXT = {".pdf", ".txt", ".log", ".json", ".jsonl", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".bmp",
                ".zip", ".docx", ".xlsx", ".xml", ".eml", ".md"}
 EVIDENCE_TYPES = ["document", "image", "archive", "system_log", "text", "other"]
-ORG_NAME = E("DFIS_ORG_NAME", "DFIS Academic Prototype")
+ORG_NAME = E("DFIS_ORG_NAME", "Digital Forensics Investigation System")
+SYSTEM_VERSION = E("DFIS_VERSION", "1.0.0")
+SESSION_IDLE_MINUTES = int(E("DFIS_SESSION_IDLE_MINUTES", "30"))
+REQUIRE_USER_APPROVAL = E("DFIS_REQUIRE_USER_APPROVAL", "false").lower() == "true"
+# Email (SMTP)
+SMTP_HOST = E("DFIS_SMTP_HOST", "")
+SMTP_PORT = int(E("DFIS_SMTP_PORT", "587"))
+SMTP_USER = E("DFIS_SMTP_USER", "")
+SMTP_PASS = E("DFIS_SMTP_PASS", "")
+SMTP_FROM = E("DFIS_SMTP_FROM", "noreply@dfis.local")
+SMTP_TLS  = E("DFIS_SMTP_TLS", "true").lower() == "true"

@@ -119,9 +119,31 @@ const ihtml = ic => table([['Time', r => fmt(r.at)], ['Result', r => badge(r.res
 
 pages.analysis = async v => {
   const items = await evOptions();
-  v.innerHTML = `<h1>File Analysis</h1><div class="note">Runs on a separate working copy. Files are never executed. Observations are facts; interpretations are tentative.</div><div class="row">${evSel(items)}${can('analysis:run') ? '<button class="btn primary" id="run">Run analysis</button>' : ''}</div><div id="out"></div>`;
-  const show = guard(async () => { const id = $('#ev').value; if (!id) return $('#out').innerHTML = '<div class="empty">Register evidence first.</div>'; const h = await api('/file-analysis/' + id); $('#out').innerHTML = h.length ? h.map(j => `<div class="card"><h2>${fmt(j.created_at)} ${badge(j.status)}</h2>${j.error ? `<p class="error">${esc(j.error)}</p>` : ''}${j.result ? `<h3>Observations</h3>${kv(j.result.observations)}<h3>Interpretations (tentative)</h3>${j.result.interpretations.map(i => `<div class="alert">${esc(i)}</div>`).join('') || '<span class="muted">None</span>'}<h3>Warnings</h3>${j.result.warnings.map(i => `<div class="alert">${esc(i)}</div>`).join('') || '<span class="muted">None</span>'}<h3>Tools</h3>${kv(j.result.tools)}` : ''}</div>`).join('') : '<div class="empty">No analysis yet.</div>'; });
-  $('#ev').onchange = show; if ($('#run')) $('#run').onclick = guard(async () => { await api('/file-analysis/' + $('#ev').value, { method: 'POST' }); toast('Analysis finished'); show(); });
+  v.innerHTML = `<h1>File Analysis</h1><div class="note">Runs on a separate working copy. Files are never executed. Observations are facts; interpretations are tentative.</div>
+  <div class="row">${evSel(items)}${can('analysis:run') ? '<button class="btn primary" id="run">Run analysis</button>' : ''}</div>
+  <div id="out"></div>
+  ${can('analysis:run') ? `<div class="card"><h2>Keyword Search</h2><div class="note">Search the text content of this evidence file. Supported file types: plain text, PDF, DOCX.</div><div class="row"><input id="kws" placeholder="Keywords, comma separated (e.g. password, admin, DELETE)" aria-label="Keywords" style="flex:1"><button class="btn primary" id="kw-run">Search</button></div><div id="kw-out"></div></div>` : ''}`;
+  const show = guard(async () => {
+    const id = $('#ev').value;
+    if (!id) return $('#out').innerHTML = '<div class="empty">Register evidence first.</div>';
+    const h = await api('/file-analysis/' + id);
+    $('#out').innerHTML = h.length ? h.map(j => `<div class="card"><h2>${fmt(j.created_at)} ${badge(j.status)}</h2>${j.error ? `<p class="error">${esc(j.error)}</p>` : ''}${j.result ? `<h3>Observations</h3>${kv(j.result.observations)}<h3>Interpretations (tentative)</h3>${j.result.interpretations.map(i => `<div class="alert">${esc(i)}</div>`).join('') || '<span class="muted">None</span>'}<h3>Warnings</h3>${j.result.warnings.map(i => `<div class="alert">${esc(i)}</div>`).join('') || '<span class="muted">None</span>'}<h3>Tools</h3>${kv(j.result.tools)}` : ''}</div>`).join('') : '<div class="empty">No analysis yet.</div>';
+    if ($('#kw-out')) $('#kw-out').innerHTML = '';
+  });
+  const runSearch = guard(async () => {
+    const id = $('#ev').value;
+    if (!id) return toast('Select an evidence item first', true);
+    const keywords = ($('#kws').value || '').split(',').map(k => k.trim()).filter(Boolean);
+    if (!keywords.length) return toast('Enter at least one keyword', true);
+    const r = await api('/file-analysis/' + id + '/search', { method: 'POST', body: { keywords } });
+    if (!r.supported) { $('#kw-out').innerHTML = `<div class="note">${esc(r.message || 'File type not supported for keyword search.')}</div>`; return; }
+    const { matches, stats } = r;
+    $('#kw-out').innerHTML = `<div class="note">Searched ${stats.lines_searched} line(s) in ${esc(r.source_note)}. Found <b>${stats.total_matches}</b> match(es).${stats.truncated ? ' Results truncated at 500.' : ''}<br><small class="muted">${esc(r.disclaimer)}</small></div>` +
+      (matches.length ? table([['Line', m => m.line_no], ['Matched keywords', m => m.matched_keywords.map(k => `<span class="badge">${esc(k)}</span>`).join(' ')], ['Context', m => `<span style="white-space:pre-wrap;word-break:break-all">${esc(m.context)}</span>`]], matches, 'No matches.') : '<div class="empty">No matches found.</div>');
+  });
+  $('#ev').onchange = show;
+  if ($('#run')) $('#run').onclick = guard(async () => { await api('/file-analysis/' + $('#ev').value, { method: 'POST' }); toast('Analysis finished'); show(); });
+  if ($('#kw-run')) $('#kw-run').onclick = runSearch;
   show();
 };
 

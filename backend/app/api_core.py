@@ -11,19 +11,29 @@ from .db import now, iso
 from .security import (PERMS, hash_pw, verify_pw, validate_password, make_token, current_user, current_session, require,
                        case_filter, get_case, audit, verify_audit_chain, verify_totp, new_totp_secret, totp_uri,
                        make_mfa_pending, mfa_pending_user, consume_mfa_pending, generate_recovery_codes)
+from . import email_utils
 
-auth_r = APIRouter(prefix="/auth", tags=["auth"])
-users_r = APIRouter(prefix="/users", tags=["users"])
-cases_r = APIRouter(prefix="/cases", tags=["cases"])
-dash_r = APIRouter(prefix="/dashboard", tags=["dashboard"])
-audit_r = APIRouter(prefix="/audit", tags=["audit"])
-settings_r = APIRouter(prefix="/settings", tags=["settings"])
+auth_r     = APIRouter(prefix="/auth",      tags=["auth"])
+users_r    = APIRouter(prefix="/users",     tags=["users"])
+cases_r    = APIRouter(prefix="/cases",     tags=["cases"])
+dash_r     = APIRouter(prefix="/dashboard", tags=["dashboard"])
+audit_r    = APIRouter(prefix="/audit",     tags=["audit"])
+settings_r = APIRouter(prefix="/settings",  tags=["settings"])
+health_r   = APIRouter(prefix="/health",    tags=["health"])
 
 
 def user_out(u):
     return {"id": u.id, "username": u.username, "full_name": u.full_name, "email": u.email, "role": u.role,
             "is_active": u.is_active, "must_change_password": u.must_change_password, "mfa_enabled": u.mfa_enabled,
+            "account_status": getattr(u, "account_status", "active") or "active",
             "created_at": iso(u.created_at), "permissions": PERMS.get(u.role, [])}
+
+
+# ---------------- health ----------------
+@health_r.get("")
+def health(db=Depends(get_db)):
+    db.execute(select(func.count()).select_from(User))
+    return {"status": "ok", "system": config.ORG_NAME, "version": config.SYSTEM_VERSION}
 
 
 def paginate(db, stmt, page, size):
@@ -252,10 +262,24 @@ def create_user(b: UserCreate, admin=Depends(require("users:manage")), db=Depend
     validate_password(b.password)
     if db.scalar(select(User).where(User.username == b.username.lower())):
         raise HTTPException(409, "Username already exists")
+    status = "pending" if config.REQUIRE_USER_APPROVAL else "active"
     u = User(username=b.username.lower(), full_name=b.full_name, email=b.email, role=b.role,
-             password_hash=hash_pw(b.password), must_change_password=True)
+             password_hash=hash_pw(b.password), must_change_password=True,
+             is_active=not config.REQUIRE_USER_APPROVAL)
     db.add(u); db.commit()
-    audit(db, admin, "user_created", "user", u.id, role=b.role)
+    audit(db, admin, "user_created", "user", u.id, role=b.role, status=status)
+    return user_out(u)
+
+
+@users_r.post("/{uid_}/approve")
+def approve_user(uid_: str, admin=Depends(require("users:manage")), db=Depends(get_db)):
+    u = db.get(User, uid_)
+    if not u:
+        raise HTTPException(404, "User not found")
+    u.is_active = True
+    db.commit()
+    email_utils.notify_account_approved(u.email, u.full_name)
+    audit(db, admin, "user_approved", "user", u.id)
     return user_out(u)
 
 
@@ -292,6 +316,7 @@ def reset_password(uid_: str, admin=Depends(require("users:manage")), db=Depends
     db.execute(update(UserSession).where(UserSession.user_id == u.id).values(revoked=True))
     db.commit()
     audit(db, admin, "password_reset", "user", u.id)
+    email_utils.notify_password_reset(u.email, u.full_name, temp)
     return {"temporary_password": temp, "note": "Shown once. User must change it at next login."}
 
 
@@ -383,11 +408,13 @@ class Assign(BaseModel):
 @cases_r.post("/{cid}/assign")
 def assign(cid: str, b: Assign, u=Depends(require("case:assign")), db=Depends(get_db)):
     c = get_case(db, u, cid)
-    if not db.get(User, b.user_id):
+    assignee = db.get(User, b.user_id)
+    if not assignee:
         raise HTTPException(404, "User not found")
     if not db.scalar(select(CaseAssignment.id).where(CaseAssignment.case_id == c.id, CaseAssignment.user_id == b.user_id)):
         db.add(CaseAssignment(case_id=c.id, user_id=b.user_id)); db.commit()
         audit(db, u, "case_assigned", "case", c.id, assignee=b.user_id)
+        email_utils.notify_case_assigned(assignee.email, assignee.full_name, c.ref, c.title)
     return case_out(db, c)
 
 
@@ -434,12 +461,24 @@ def dashboard(u=Depends(current_user), db=Depends(get_db)):
     for a in db.scalars(astmt.where(AuditEvent.ts >= since).limit(5000)):
         day[a.ts.date().isoformat()] = day.get(a.ts.date().isoformat(), 0) + 1
     activity = [{"label": (since + timedelta(days=i)).date().isoformat()[5:], "value": day.get((since + timedelta(days=i)).date().isoformat(), 0)} for i in range(14)]
-    return {"cases": {"total": sum(by_status.values()), **{k: by_status.get(k, 0) for k in ("open", "active", "closed", "archived")}},
-            "evidence_total": sum(v for _, v in ev_types), "evidence_by_type": [{"label": t, "value": v} for t, v in ev_types],
-            "analysis": [{"label": s, "value": v} for s, v in an], "activity": activity,
-            "recent_integrity": [{"evidence": r, "result": i.result, "at": iso(i.created_at)} for i, r in ics],
-            "pending_custody": [{"evidence": r, "evidence_id": c.evidence_id, "at": iso(c.created_at)} for c, r in pend],
-            "recent_audit": [{"ts": iso(a.ts), "actor": a.actor_name, "action": a.action, "outcome": a.outcome} for a in recent]}
+    # Overdue cases: open/active for more than 30 days
+    overdue_cutoff = now() - timedelta(days=30)
+    overdue = db.scalar(select(func.count(Case.id)).where(cf, Case.status.in_(["open", "active"]), Case.created_at < overdue_cutoff)) or 0
+    # Pending user approvals (admin only)
+    pending_approvals = 0
+    if u.role in ("admin",):
+        pending_approvals = db.scalar(select(func.count(User.id)).where(User.is_active == False)) or 0  # noqa
+    return {
+        "cases": {"total": sum(by_status.values()), **{k: by_status.get(k, 0) for k in ("open", "active", "closed", "archived")}, "overdue": overdue},
+        "evidence_total": sum(v for _, v in ev_types),
+        "evidence_by_type": [{"label": t, "value": v} for t, v in ev_types],
+        "analysis": [{"label": s, "value": v} for s, v in an],
+        "activity": activity,
+        "pending_approvals": pending_approvals,
+        "recent_integrity": [{"evidence": r, "result": i.result, "at": iso(i.created_at)} for i, r in ics],
+        "pending_custody": [{"evidence": r, "evidence_id": c.evidence_id, "at": iso(c.created_at)} for c, r in pend],
+        "recent_audit": [{"ts": iso(a.ts), "actor": a.actor_name, "action": a.action, "outcome": a.outcome} for a in recent],
+    }
 
 
 # ---------------- audit ----------------
@@ -469,10 +508,20 @@ def verify(u=Depends(require("users:manage")), db=Depends(get_db)):
 def get_settings(u=Depends(require("settings:manage")), db=Depends(get_db)):
     from .forensic import DEFAULT_RULES
     r = db.get(SystemConfig, "log_rules")
-    return {"notice": "Prototype for academic use. Not forensically certified, legally validated or court-ready.",
-            "max_upload_mb": config.MAX_UPLOAD_BYTES // 1048576, "allowed_extensions": sorted(config.ALLOWED_EXT),
-            "retention_days": config.RETENTION_DAYS, "access_token_minutes": config.ACCESS_TOKEN_MINUTES,
-            "database": config.DATABASE_URL.split(":")[0], "log_rules": {**DEFAULT_RULES, **(r.value if r else {})}}
+    return {
+        "org_name": config.ORG_NAME, "version": config.SYSTEM_VERSION,
+        "max_upload_mb": config.MAX_UPLOAD_BYTES // 1048576,
+        "allowed_extensions": sorted(config.ALLOWED_EXT),
+        "retention_days": config.RETENTION_DAYS,
+        "access_token_minutes": config.ACCESS_TOKEN_MINUTES,
+        "session_idle_minutes": config.SESSION_IDLE_MINUTES,
+        "database": config.DATABASE_URL.split(":")[0],
+        "require_user_approval": config.REQUIRE_USER_APPROVAL,
+        "email_configured": bool(config.SMTP_HOST),
+        "smtp_host": config.SMTP_HOST, "smtp_port": config.SMTP_PORT,
+        "smtp_from": config.SMTP_FROM,
+        "log_rules": {**DEFAULT_RULES, **(r.value if r else {})},
+    }
 
 
 class Rules(BaseModel):
