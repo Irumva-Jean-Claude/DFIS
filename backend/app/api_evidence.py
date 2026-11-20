@@ -12,6 +12,7 @@ from .db import now, iso
 from .security import require, get_case, get_evidence, case_filter, audit, current_user
 from .forensic import sha256_file, identify, parse_ts
 from .api_core import paginate
+from . import email_utils
 
 evidence_r = APIRouter(prefix="/evidence", tags=["evidence"])
 integrity_r = APIRouter(prefix="/integrity", tags=["integrity"])
@@ -215,6 +216,7 @@ def transfer(eid: str, b: Transfer, u=Depends(require("custody:transfer")), db=D
     e.status = "transfer_pending"
     db.commit()
     audit(db, u, "custody_transfer", "evidence", e.id, to=to.username)
+    email_utils.notify_custody_transfer(to.email, to.full_name, e.ref, u.full_name, b.reason)
     return {"ok": True, "event_id": c.id}
 
 

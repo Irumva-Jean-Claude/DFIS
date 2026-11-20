@@ -23,6 +23,7 @@ from .forensic import (
     detect_indicators,
     group_events,
     parse_ts,
+    search_file_content,
     DEFAULT_RULES,
     TOOL,
 )
@@ -258,6 +259,43 @@ def file_history(
     )
 
     return [job_out(db, job) for job in rows]
+
+
+class KeywordSearch(BaseModel):
+    keywords: list[str] = Field(min_length=1, max_length=20)
+
+
+@file_r.post("/{eid}/search")
+def search_file_keywords(
+    eid: str,
+    body: KeywordSearch,
+    u=Depends(require("analysis:run")),
+    db=Depends(get_db),
+):
+    keywords = [k.strip() for k in body.keywords if k.strip()]
+
+    if not keywords:
+        raise HTTPException(422, "At least one non-empty keyword is required")
+
+    if len(keywords) > 20:
+        raise HTTPException(422, "Maximum 20 keywords per search")
+
+    e = get_evidence(db, u, eid)
+    wc = None
+
+    try:
+        wc = working_copy(e)
+        result = search_file_content(wc, keywords, e.original_filename)
+    finally:
+        if wc is not None:
+            try:
+                wc.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    audit(db, u, "file_keyword_search", "evidence", e.id, keywords=keywords[:5])
+
+    return {"evidence_id": e.id, "evidence_ref": e.ref, **result}
 
 
 # -------------------------------------------------------------------

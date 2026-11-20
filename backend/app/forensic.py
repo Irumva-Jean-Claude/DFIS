@@ -306,3 +306,85 @@ def group_events(events):
     for e in events:
         g[(e["event_type"], e["source"] or "-")] += 1
     return [{"event_type": k[0], "source": k[1], "count": v} for k, v in sorted(g.items(), key=lambda x: -x[1])[:25]]
+
+
+def search_file_content(path, keywords, name, max_results=500):
+    """Search the text content of a file for keywords. Works on a working copy; original is never read here."""
+    p = Path(path)
+    ident = identify(p)
+    mime = ident["mime"]
+    text_lines = []
+    source_note = ""
+
+    try:
+        if mime == "text/plain":
+            raw = p.read_bytes()[:10_000_000].decode("utf-8", "replace")
+            text_lines = raw.splitlines()
+            source_note = "plain text content"
+        elif mime == "application/pdf":
+            from pypdf import PdfReader
+            r = PdfReader(str(p))
+            if r.is_encrypted:
+                return {"supported": False, "mime": mime,
+                        "message": "PDF is encrypted; text cannot be extracted.", "matches": [], "stats": {}}
+            for page in r.pages:
+                for line in (page.extract_text() or "").splitlines():
+                    text_lines.append(line)
+            source_note = f"PDF text extracted from {len(r.pages)} page(s)"
+        elif mime == "application/zip":
+            ext = Path(name).suffix.lower()
+            if ext == ".docx":
+                import zipfile
+                from defusedxml import ElementTree as ET
+                with zipfile.ZipFile(p) as z:
+                    names = {i.filename for i in z.infolist()}
+                    if "word/document.xml" in names and z.getinfo("word/document.xml").file_size < 20_000_000:
+                        root = ET.fromstring(z.read("word/document.xml"))
+                        txt = " ".join(t.text for t in root.iter() if t.tag.endswith("}t") and t.text)
+                        text_lines = txt.splitlines() or [txt]
+                        source_note = "DOCX document text"
+                    else:
+                        return {"supported": False, "mime": mime,
+                                "message": "DOCX document.xml not found or too large.", "matches": [], "stats": {}}
+            else:
+                return {"supported": False, "mime": mime,
+                        "message": "ZIP/archive keyword search is only supported for .docx files.", "matches": [], "stats": {}}
+        else:
+            return {"supported": False, "mime": mime,
+                    "message": f"Keyword search is not supported for {ident['description']} files.",
+                    "matches": [], "stats": {}}
+    except Exception as e:
+        return {"supported": False, "error": f"Content extraction failed: {type(e).__name__}",
+                "matches": [], "stats": {}}
+
+    lower_keywords = [kw.lower() for kw in keywords if kw.strip()]
+    matches = []
+    truncated = False
+
+    for line_no, line in enumerate(text_lines, 1):
+        if not line.strip():
+            continue
+        line_lower = line.lower()
+        matched = [kw for kw in lower_keywords if kw in line_lower]
+        if matched:
+            matches.append({
+                "line_no": line_no,
+                "matched_keywords": matched,
+                "context": line[:500],
+            })
+            if len(matches) >= max_results:
+                truncated = True
+                break
+
+    return {
+        "supported": True,
+        "source_note": source_note,
+        "matches": matches,
+        "stats": {
+            "lines_searched": len(text_lines),
+            "total_matches": len(matches),
+            "truncated": truncated,
+            "keywords_searched": keywords,
+        },
+        "disclaimer": "Matches indicate the keyword appears in the file content. Relevance requires investigator judgment.",
+    }
