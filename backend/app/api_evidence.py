@@ -1,5 +1,5 @@
 """Evidence ingestion, chain of custody and integrity verification."""
-import csv, io, os, re, shutil
+import csv, io, os, re, shutil, requests
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
@@ -47,7 +47,19 @@ def ev_out(db, e):
             "acquisition_method": e.acquisition_method, "acquisition_date": e.acquisition_raw,
             "acquisition_utc": iso(e.acquisition_utc), "submitted_by": e.submitted_by, "received_by": e.received_by,
             "mime": e.mime, "size": e.size, "sha256": e.sha256, "hashed_at": iso(e.hashed_at), "status": e.status,
-            "custodian": uname(db, e.custodian_id), "uploaded_by": uname(db, e.uploaded_by), "created_at": iso(e.created_at)}
+            "custodian": uname(db, e.custodian_id), "uploaded_by": uname(db, e.uploaded_by), "created_at": iso(e.created_at),
+            "vt_status": e.vt_status, "vt_malicious": e.vt_malicious, "vt_suspicious": e.vt_suspicious,
+            "vt_total_engines": e.vt_total_engines, "vt_message": e.vt_message, "vt_scanned_at": iso(e.vt_scanned_at)}
+
+
+def _save_vt(db, e, result):
+    e.vt_status       = result["status"]
+    e.vt_malicious    = result.get("malicious", 0)
+    e.vt_suspicious   = result.get("suspicious", 0)
+    e.vt_total_engines= result.get("total_engines", 0)
+    e.vt_message      = result.get("message", "")
+    e.vt_scanned_at   = now()
+    db.commit()
 
 
 def cust(db, **kw):
@@ -207,10 +219,11 @@ def transfer(eid: str, b: Transfer, u=Depends(require("custody:transfer")), db=D
     to = db.get(User, b.to_user_id)
     if not to or not to.is_active:
         raise HTTPException(404, "Recipient not found")
-    try:
-        get_case(db, to, e.case_id)
-    except HTTPException:
-        raise HTTPException(400, "Recipient is not assigned to this case")
+    if to.role not in ("admin", "lead"):
+        try:
+            get_case(db, to, e.case_id)
+        except HTTPException:
+            raise HTTPException(400, "Recipient is not assigned to this case")
     c = cust(db, evidence_id=e.id, case_id=e.case_id, action="TRANSFER", from_user_id=e.custodian_id, to_user_id=to.id,
              by_user_id=u.id, reason=b.reason, notes=b.notes)
     e.status = "transfer_pending"
@@ -282,3 +295,71 @@ def integrity_history(eid: str, u=Depends(require("evidence:read")), db=Depends(
     rows = db.scalars(select(IntegrityCheck).where(IntegrityCheck.evidence_id == e.id).order_by(IntegrityCheck.created_at.desc()).limit(50))
     return [{"id": r.id, "result": r.result, "calculated": r.calculated, "reference": r.reference,
              "by_user": uname(db, r.by_user_id), "at": iso(r.created_at), "message": MSG[r.result]} for r in rows]
+
+
+@integrity_r.get("/{eid}/virustotal")
+def virustotal_scan(eid: str, u=Depends(require("evidence:read")), db=Depends(get_db)):
+    """Scan evidence file against VirusTotal's 70+ antivirus engines."""
+    if not config.VIRUSTOTAL_KEY:
+        raise HTTPException(503, "VirusTotal API key not configured.")
+    e = get_evidence(db, u, eid)
+    hdrs = {"x-apikey": config.VIRUSTOTAL_KEY}
+
+    def _parse(attrs):
+        stats = attrs.get("last_analysis_stats", {})
+        malicious  = stats.get("malicious", 0)
+        suspicious = stats.get("suspicious", 0)
+        total = sum(v for k, v in stats.items() if k not in ("type-unsupported", "failure", "timeout", "confirmed-timeout"))
+        status = "malicious" if malicious > 0 else "suspicious" if suspicious > 0 else "clean"
+        return {
+            "status": status,
+            "malicious": malicious,
+            "suspicious": suspicious,
+            "undetected": stats.get("undetected", 0),
+            "total_engines": total,
+            "file_name": attrs.get("meaningful_name", e.original_filename),
+            "message": (
+                f"MALWARE DETECTED — {malicious} of {total} engines flagged this file." if malicious > 0
+                else f"Suspicious — {suspicious} of {total} engines flagged this file." if suspicious > 0
+                else f"Clean — 0 of {total} engines flagged this file."
+            ),
+        }
+
+    try:
+        # Step 1: check by hash first (fast, no upload needed)
+        r = requests.get(f"https://www.virustotal.com/api/v3/files/{e.sha256}", headers=hdrs, timeout=15)
+        if r.status_code == 200:
+            result = _parse(r.json()["data"]["attributes"])
+            _save_vt(db, e, result)
+            return result
+
+        # Step 2: hash not found — upload the actual file for a fresh scan
+        file_path = orig_path(e)
+        with open(file_path, "rb") as f_obj:
+            upload = requests.post(
+                "https://www.virustotal.com/api/v3/files",
+                headers=hdrs,
+                files={"file": (e.original_filename, f_obj)},
+                timeout=60,
+            )
+        upload.raise_for_status()
+        analysis_id = upload.json()["data"]["id"]
+
+        # Step 3: poll for results (up to 30 seconds)
+        import time
+        for _ in range(6):
+            time.sleep(5)
+            poll = requests.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", headers=hdrs, timeout=15)
+            poll.raise_for_status()
+            poll_data = poll.json()["data"]
+            if poll_data["attributes"]["status"] == "completed":
+                result = _parse(poll_data["attributes"])
+                _save_vt(db, e, result)
+                return result
+
+        return {"status": "pending", "message": "Scan submitted to VirusTotal — still processing. Try again in 1 minute.", "malicious": 0, "suspicious": 0, "total_engines": 0}
+
+    except HTTPException:
+        raise
+    except Exception as ex:
+        raise HTTPException(502, f"VirusTotal request failed: {ex}")

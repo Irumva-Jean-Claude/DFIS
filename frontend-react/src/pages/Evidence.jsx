@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import { api, fmt, qs, download } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
@@ -16,10 +17,21 @@ function EvidenceDetail({ id, onClose, onRefresh }) {
   const [e, setE] = useState(null)
   const [hist, setHist] = useState([])
   const [checking, setChecking] = useState(false)
+  const [vtResult, setVtResult] = useState(null)
+  const [vtLoading, setVtLoading] = useState(false)
 
   const load = useCallback(() =>
     Promise.all([api('/evidence/' + id), api('/integrity/' + id)])
-      .then(([ev, h]) => { setE(ev); setHist(h) })
+      .then(([ev, h]) => {
+        setE(ev)
+        setHist(h)
+        if (ev.vt_status) setVtResult({
+          status: ev.vt_status, malicious: ev.vt_malicious,
+          suspicious: ev.vt_suspicious, total_engines: ev.vt_total_engines,
+          undetected: ev.vt_total_engines - ev.vt_malicious - ev.vt_suspicious,
+          message: ev.vt_message, scanned_at: ev.vt_scanned_at
+        })
+      })
   , [id])
 
   useEffect(() => { load() }, [load])
@@ -37,6 +49,15 @@ function EvidenceDetail({ id, onClose, onRefresh }) {
   }
 
   const handleDownload = () => download('/evidence/' + id + '/download', e.original_filename)
+
+  const scanVT = async () => {
+    setVtLoading(true); setVtResult(null)
+    try {
+      const r = await api('/integrity/' + id + '/virustotal')
+      setVtResult(r)
+    } catch (err) { toast(err.message, true) }
+    finally { setVtLoading(false) }
+  }
 
   return (
     <Modal title={`${e.ref} — ${e.original_filename}`} onClose={onClose} wide>
@@ -57,7 +78,28 @@ function EvidenceDetail({ id, onClose, onRefresh }) {
       <div className="row" style={{ marginTop: 12 }}>
         <button className="btn sm" onClick={handleDownload}>Download original</button>
         {can('analysis:run') && <button className="btn sm" onClick={verify} disabled={checking}>{checking ? 'Verifying…' : 'Verify integrity'}</button>}
+        {can('analysis:run') && <button className="btn sm primary" onClick={scanVT} disabled={vtLoading}>{vtLoading ? 'Scanning… (up to 30s)' : '🔍 Scan with VirusTotal'}</button>}
       </div>
+      {vtResult && (
+        <div style={{
+          marginTop: 12, padding: '12px 16px', borderRadius: 6, border: '1px solid',
+          borderColor: vtResult.status === 'malicious' ? '#c0392b' : vtResult.status === 'suspicious' ? '#e67e22' : '#27ae60',
+          background: vtResult.status === 'malicious' ? '#2a0a0a' : vtResult.status === 'suspicious' ? '#2a1a0a' : '#0a2a0a',
+        }}>
+          <strong style={{ color: vtResult.status === 'malicious' ? '#e74c3c' : vtResult.status === 'suspicious' ? '#e67e22' : '#2ecc71' }}>
+            {vtResult.status === 'malicious' ? '⚠️ MALWARE DETECTED' : vtResult.status === 'suspicious' ? '⚠️ SUSPICIOUS' : vtResult.status === 'not_found' ? 'ℹ️ NOT IN DATABASE' : '✅ CLEAN'}
+          </strong>
+          <p style={{ margin: '4px 0 0', fontSize: 13 }}>{vtResult.message}</p>
+          {vtResult.total_engines > 0 && (
+            <p style={{ margin: '4px 0 0', fontSize: 12, opacity: 0.7 }}>
+              Malicious: {vtResult.malicious} &nbsp;|&nbsp; Suspicious: {vtResult.suspicious} &nbsp;|&nbsp; Clean: {vtResult.undetected} &nbsp;|&nbsp; Total engines: {vtResult.total_engines}
+            </p>
+          )}
+          {vtResult.scanned_at && (
+            <p style={{ margin: '4px 0 0', fontSize: 11, opacity: 0.5 }}>Last scanned: {fmt(vtResult.scanned_at)}</p>
+          )}
+        </div>
+      )}
       {hist.length > 0 && (
         <>
           <h3>Integrity checks</h3>
@@ -77,10 +119,11 @@ function EvidenceDetail({ id, onClose, onRefresh }) {
 export default function Evidence() {
   const { can } = useAuth()
   const toast = useToast()
+  const loc = useLocation()
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(() => new URLSearchParams(loc.search).get('q') || '')
   const [caseId, setCaseId] = useState('')
   const [etype, setEtype] = useState('')
   const [cases, setCases] = useState([])

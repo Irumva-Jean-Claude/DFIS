@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from sqlalchemy import (create_engine, event, text, String, Integer, Boolean, DateTime, Text, JSON, ForeignKey,
                         UniqueConstraint, Index)
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import Annotated, DeclarativeBase, mapped_column, sessionmaker
+from typing import Annotated
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from . import config
 
 def uid() -> str:
@@ -64,7 +65,7 @@ class FkStr:
 
 class User(Base):
     __tablename__ = "users"
-    id : PkStr
+    id: Mapped[PkStr]
     username = mapped_column(String(40), unique=True, index=True)
     full_name = mapped_column(String(100))
     email = mapped_column(String(150), default="")
@@ -81,8 +82,8 @@ class User(Base):
 
 class UserSession(Base):
     __tablename__ = "sessions"
-    id : PkStr  # JWT jti
-    user_id : FkStr["users.id", dict(index=True)]
+    id: Mapped[PkStr]  # JWT jti
+    user_id: Mapped[FkStr["users.id", dict(index=True)]]
     expires_at = mapped_column(DateTime)
     revoked = mapped_column(Boolean, default=False)
     created_at = mapped_column(DateTime, default=now)
@@ -90,8 +91,8 @@ class UserSession(Base):
 
 class RecoveryCode(Base):  # single-use MFA backup codes
     __tablename__ = "recovery_codes"
-    id : PkStr
-    user_id : FkStr["users.id", dict(index=True)]
+    id: Mapped[PkStr]
+    user_id: Mapped[FkStr["users.id", dict(index=True)]]
     code_hash = mapped_column(String(255))
     used_at = mapped_column(DateTime, nullable=True)
     created_at = mapped_column(DateTime, default=now)
@@ -100,21 +101,21 @@ class RecoveryCode(Base):  # single-use MFA backup codes
 class MFAPending(Base):  # short-lived challenge between password and second factor
     __tablename__ = "mfa_pending"
     id = mapped_column(String(36), primary_key=True)
-    user_id : FkStr["users.id", dict(index=True)]
+    user_id: Mapped[FkStr["users.id", dict(index=True)]]
     expires_at = mapped_column(DateTime)
     created_at = mapped_column(DateTime, default=now)
 
 
 class Case(Base):
     __tablename__ = "cases"
-    id : PkStr
+    id: Mapped[PkStr]
     ref = mapped_column(String(30), unique=True, index=True)
     title = mapped_column(String(200))
     description = mapped_column(Text, default="")
     category = mapped_column(String(60), default="general")
     priority = mapped_column(String(10), default="medium")
     status = mapped_column(String(10), default="open", index=True)
-    created_by : FkStr["users.id"]
+    created_by: Mapped[FkStr["users.id"]]
     created_at = mapped_column(DateTime, default=now)
     updated_at = mapped_column(DateTime, default=now, onupdate=now)
     archived_at = mapped_column(DateTime, nullable=True)
@@ -124,17 +125,17 @@ class Case(Base):
 class CaseAssignment(Base):
     __tablename__ = "case_assignments"
     __table_args__ = (UniqueConstraint("case_id", "user_id"),)
-    id : PkStr
-    case_id : FkStr["cases.id", dict(index=True)]
-    user_id : FkStr["users.id", dict(index=True)]
+    id: Mapped[PkStr]
+    case_id: Mapped[FkStr["cases.id", dict(index=True)]]
+    user_id: Mapped[FkStr["users.id", dict(index=True)]]
     assigned_at = mapped_column(DateTime, default=now)
 
 
 class Evidence(Base):
     __tablename__ = "evidence"
-    id : PkStr
+    id: Mapped[PkStr]
     ref = mapped_column(String(30), unique=True, index=True)
-    case_id : FkStr["cases.id", dict(index=True)]
+    case_id: Mapped[FkStr["cases.id", dict(index=True)]]
     evidence_type = mapped_column(String(20))
     original_filename = mapped_column(String(200))
     description = mapped_column(Text, default="")
@@ -151,20 +152,26 @@ class Evidence(Base):
     hashed_at = mapped_column(DateTime)
     storage_name = mapped_column(String(64), unique=True)  # internal only, never exposed
     status = mapped_column(String(20), default="in_custody")
-    custodian_id : FkStr["users.id", dict(nullable=True)]
-    uploaded_by : FkStr["users.id"]
+    custodian_id: Mapped[FkStr["users.id", dict(nullable=True)]]
+    uploaded_by: Mapped[FkStr["users.id"]]
     created_at = mapped_column(DateTime, default=now)
+    vt_status = mapped_column(String(20), nullable=True)
+    vt_malicious = mapped_column(Integer, nullable=True)
+    vt_suspicious = mapped_column(Integer, nullable=True)
+    vt_total_engines = mapped_column(Integer, nullable=True)
+    vt_message = mapped_column(Text, nullable=True)
+    vt_scanned_at = mapped_column(DateTime, nullable=True)
 
 
 class CustodyEvent(Base):  # append-only
     __tablename__ = "custody_events"
-    id : PkStr
-    evidence_id : FkStr["evidence.id", dict(index=True)]
-    case_id : FkStr["cases.id"]
+    id: Mapped[PkStr]
+    evidence_id: Mapped[FkStr["evidence.id", dict(index=True)]]
+    case_id: Mapped[FkStr["cases.id"]]
     action = mapped_column(String(30))  # INGESTED / TRANSFER / ACKNOWLEDGED / CORRECTION_NOTE
-    from_user_id : FkStr["users.id", dict(nullable=True)]
-    to_user_id : FkStr["users.id", dict(nullable=True)]
-    by_user_id : FkStr["users.id"]
+    from_user_id: Mapped[FkStr["users.id", dict(nullable=True)]]
+    to_user_id: Mapped[FkStr["users.id", dict(nullable=True)]]
+    by_user_id: Mapped[FkStr["users.id"]]
     reason = mapped_column(Text, default="")
     notes = mapped_column(Text, default="")
     ref_event_id = mapped_column(String(36), nullable=True, index=True)
@@ -173,24 +180,24 @@ class CustodyEvent(Base):  # append-only
 
 class IntegrityCheck(Base):  # append-only
     __tablename__ = "integrity_checks"
-    id : PkStr
-    evidence_id : FkStr["evidence.id", dict(index=True)]
+    id: Mapped[PkStr]
+    evidence_id: Mapped[FkStr["evidence.id", dict(index=True)]]
     result = mapped_column(String(12))  # MATCH / MISMATCH / ERROR
     calculated = mapped_column(String(64), nullable=True)
     reference = mapped_column(String(64))
-    by_user_id : FkStr["users.id"]
+    by_user_id: Mapped[FkStr["users.id"]]
     created_at = mapped_column(DateTime, default=now)
 
 
 class AnalysisResult(Base):
     __tablename__ = "analysis_results"
-    id : PkStr
-    evidence_id : FkStr["evidence.id", dict(index=True)]
+    id: Mapped[PkStr]
+    evidence_id: Mapped[FkStr["evidence.id", dict(index=True)]]
     kind = mapped_column(String(10))  # file / log
     status = mapped_column(String(12), default="running")
     result = mapped_column(JSON, nullable=True)
     error = mapped_column(Text, nullable=True)
-    by_user_id : FkStr["users.id"]
+    by_user_id: Mapped[FkStr["users.id"]]
     created_at = mapped_column(DateTime, default=now)
     finished_at = mapped_column(DateTime, nullable=True)
 
@@ -198,8 +205,8 @@ class AnalysisResult(Base):
 class LogEvent(Base):
     __tablename__ = "log_events"
     __table_args__ = (Index("ix_log_ev_ts", "evidence_id", "ts_utc"),)
-    id : PkStr
-    evidence_id : FkStr["evidence.id"]
+    id: Mapped[PkStr]
+    evidence_id: Mapped[FkStr["evidence.id"]]
     line_no = mapped_column(Integer)
     ts_utc = mapped_column(DateTime, nullable=True)
     ts_original = mapped_column(String(80), nullable=True)
@@ -212,27 +219,27 @@ class LogEvent(Base):
 
 class TimelineEvent(Base):
     __tablename__ = "timeline_events"
-    id : PkStr
-    case_id : FkStr["cases.id", dict(index=True)]
-    evidence_id : FkStr["evidence.id", dict(nullable=True)]
+    id: Mapped[PkStr]
+    case_id: Mapped[FkStr["cases.id", dict(index=True)]]
+    evidence_id: Mapped[FkStr["evidence.id", dict(nullable=True)]]
     kind = mapped_column(String(10))  # analyst / metadata
     title = mapped_column(String(200))
     details = mapped_column(Text, default="")
     original_ts = mapped_column(String(80), nullable=True)
     utc = mapped_column(DateTime, nullable=True)
     note = mapped_column(String(300), nullable=True)
-    created_by : FkStr["users.id"]
+    created_by: Mapped[FkStr["users.id"]]
     created_at = mapped_column(DateTime, default=now)
 
 
 class Report(Base):
     __tablename__ = "reports"
-    id : PkStr
+    id: Mapped[PkStr]
     ref = mapped_column(String(30), unique=True)
-    case_id : FkStr["cases.id", dict(index=True)]
+    case_id: Mapped[FkStr["cases.id", dict(index=True)]]
     version = mapped_column(Integer)
     filename = mapped_column(String(64))
-    by_user_id : FkStr["users.id"]
+    by_user_id: Mapped[FkStr["users.id"]]
     created_at = mapped_column(DateTime, default=now)
 
 

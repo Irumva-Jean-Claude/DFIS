@@ -21,6 +21,8 @@ export default function LogAnalysis() {
   const [q, setQ] = useState('')
   const [etype, setEtype] = useState('')
   const [source, setSource] = useState('')
+  const [mlRunning, setMlRunning] = useState(false)
+  const [mlResult, setMlResult] = useState(null)
   const SIZE = 25
 
   useEffect(() => { api('/cases?size=100').then(r => setCases(r.items)).catch(() => {}) }, [])
@@ -63,6 +65,16 @@ export default function LogAnalysis() {
       setJobs(h); loadEvents()
     } catch (err) { toast(err.message, true) }
     finally { setRunning(false) }
+  }
+
+  const runMlScan = async () => {
+    setMlRunning(true); setMlResult(null)
+    try {
+      const r = await api('/ml/intrusion-detect', { method: 'POST' })
+      setMlResult(r)
+      toast('AI scan complete — ' + r.attacks_detected + ' attack(s) detected')
+    } catch (err) { toast(err.message, true) }
+    finally { setMlRunning(false) }
   }
 
   const exportCsv = () => {
@@ -112,6 +124,51 @@ export default function LogAnalysis() {
             </>
           )}
           {latestJob.result?.note && <p className="muted" style={{ marginTop: 8 }}>{latestJob.result.note}</p>}
+        </div>
+      )}
+
+      {can('analysis:run') && (
+        <div className="card">
+          <h2>AI Network Intrusion Detection</h2>
+          <p className="muted" style={{ marginBottom: 12 }}>
+            Powered by a Random Forest model trained on 125,973 real network connections (NSL-KDD dataset).
+            Classifies traffic as Normal or Attack with confidence scores.
+          </p>
+          <button className="btn primary" onClick={runMlScan} disabled={mlRunning}>
+            {mlRunning ? 'Scanning…' : 'Run AI Intrusion Scan (Demo)'}
+          </button>
+          {mlResult && (
+            <>
+              <div className="grid" style={{ marginTop: 16 }}>
+                {[
+                  ['Connections Analysed', mlResult.total_connections],
+                  ['Attacks Detected', mlResult.attacks_detected],
+                  ['Normal Traffic', mlResult.normal_detected],
+                ].map(([l, v]) => (
+                  <div key={l} className="card stat">
+                    <div className="n" style={{ color: l === 'Attacks Detected' && v > 0 ? 'var(--danger, #c0392b)' : undefined }}>{v}</div>
+                    <div className="l">{l}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="muted" style={{ marginTop: 8, fontSize: 12 }}>{mlResult.model_type}</p>
+              <Table
+                cols={[
+                  { label: '#',           render: r => r.id },
+                  { label: 'Connection',  render: r => r.description },
+                  { label: 'Protocol',    render: r => r.protocol.toUpperCase() },
+                  { label: 'Service',     render: r => r.service },
+                  { label: 'Result',      render: r => (
+                    <span style={{ fontWeight: 600, color: r.prediction === 'Attack' ? '#c0392b' : '#27ae60' }}>
+                      {r.prediction}
+                    </span>
+                  )},
+                  { label: 'Confidence',  render: r => r.confidence + '%' },
+                ]}
+                rows={mlResult.results}
+              />
+            </>
+          )}
         </div>
       )}
 

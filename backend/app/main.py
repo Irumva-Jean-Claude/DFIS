@@ -13,6 +13,7 @@ from .api_core import auth_r, users_r, cases_r, dash_r, audit_r, settings_r, hea
 from .api_evidence import evidence_r, integrity_r, custody_r
 from .api_analysis import file_r, log_r, timeline_r
 from .api_reports import reports_r
+from .api_ml import ml_r
 
 app = FastAPI(
     title=config.ORG_NAME,
@@ -23,7 +24,7 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 for r in (health_r, auth_r, users_r, cases_r, dash_r, audit_r, settings_r,
-          evidence_r, integrity_r, custody_r, file_r, log_r, timeline_r, reports_r):
+          evidence_r, integrity_r, custody_r, file_r, log_r, timeline_r, reports_r, ml_r):
     app.include_router(r, prefix="/api/v1")
 
 
@@ -33,14 +34,22 @@ def startup():
     _ensure_triggers_after_create(engine)
     with engine.connect() as conn:
         if engine.dialect.name == "sqlite":
-            cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(users)")]
-            migrations = {
-                "totp_secret":        "ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)",
-                "mfa_enabled":        "ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN DEFAULT 0",
-                "account_status":     "ALTER TABLE users ADD COLUMN account_status VARCHAR(20) DEFAULT 'active'",
-            }
-            for col, sql in migrations.items():
-                if col not in cols:
+            def _cols(tbl): return [r[1] for r in conn.exec_driver_sql(f"PRAGMA table_info({tbl})")]
+            user_cols = _cols("users")
+            ev_cols   = _cols("evidence")
+            migrations = [
+                ("totp_secret",      user_cols, "ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)"),
+                ("mfa_enabled",      user_cols, "ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN DEFAULT 0"),
+                ("account_status",   user_cols, "ALTER TABLE users ADD COLUMN account_status VARCHAR(20) DEFAULT 'active'"),
+                ("vt_status",        ev_cols,   "ALTER TABLE evidence ADD COLUMN vt_status VARCHAR(20)"),
+                ("vt_malicious",     ev_cols,   "ALTER TABLE evidence ADD COLUMN vt_malicious INTEGER"),
+                ("vt_suspicious",    ev_cols,   "ALTER TABLE evidence ADD COLUMN vt_suspicious INTEGER"),
+                ("vt_total_engines", ev_cols,   "ALTER TABLE evidence ADD COLUMN vt_total_engines INTEGER"),
+                ("vt_message",       ev_cols,   "ALTER TABLE evidence ADD COLUMN vt_message TEXT"),
+                ("vt_scanned_at",    ev_cols,   "ALTER TABLE evidence ADD COLUMN vt_scanned_at DATETIME"),
+            ]
+            for col, existing, sql in migrations:
+                if col not in existing:
                     conn.exec_driver_sql(sql)
                     conn.commit()
     with SessionLocal() as db:
