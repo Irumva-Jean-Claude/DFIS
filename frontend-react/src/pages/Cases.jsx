@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import { api, fmt, qs } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
@@ -69,10 +70,11 @@ function CaseDetail({ id, onClose, onRefresh }) {
 export default function Cases() {
   const { can } = useAuth()
   const toast = useToast()
+  const loc = useLocation()
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(() => new URLSearchParams(loc.search).get('q') || '')
   const [status, setStatus] = useState('')
   const [priority, setPriority] = useState('')
   const [sort, setSort] = useState('created_at')

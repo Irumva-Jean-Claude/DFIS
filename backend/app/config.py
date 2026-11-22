@@ -57,3 +57,4 @@ SMTP_USER = E("DFIS_SMTP_USER", "")
 SMTP_PASS = E("DFIS_SMTP_PASS", "")
 SMTP_FROM = E("DFIS_SMTP_FROM", "noreply@dfis.local")
 SMTP_TLS  = E("DFIS_SMTP_TLS", "true").lower() == "true"
+VIRUSTOTAL_KEY = E("DFIS_VIRUSTOTAL_KEY", "")
