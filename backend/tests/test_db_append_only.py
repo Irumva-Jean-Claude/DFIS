@@ -9,7 +9,8 @@ import pytest
 
 from backend.app import db
 from backend.app.db import (AuditEvent, CustodyEvent, IntegrityCheck,
-                            SessionLocal, now)
+                            SessionLocal, now, uid)
+from backend.app.security import _digest
 
 APPEND_ONLY = [AuditEvent, CustodyEvent, IntegrityCheck]
 
@@ -41,8 +42,13 @@ def _make_rows():
                 user, case, ev = _seed_user_evidence(s, "chainuser", "EV-CHAIN-1", "chain-a.txt")
                 row.evidence_id, row.case_id, row.action, row.by_user_id = ev.id, case.id, "INGESTED", user.id
             elif cls is AuditEvent:
-                row.action, row.outcome = "TEST", "SUCCESS"
-                row.prev_hash, row.hash = "0" * 64, "1" * 64
+                # Chain the test row correctly so it doesn't break audit
+                # verification for other tests sharing this database.
+                last = s.query(AuditEvent).order_by(AuditEvent.seq.desc()).first()
+                row.event_id, row.ts = uid(), now()
+                row.action, row.outcome, row.meta = "TEST", "SUCCESS", {}
+                row.prev_hash = last.hash if last else "0" * 64
+                row.hash = _digest(row.prev_hash, row)
             else:  # IntegrityCheck
                 user, case, ev = _seed_user_evidence(s, "icuser", "EV-IC-1", "ic-b.txt")
                 row.evidence_id, row.result, row.reference, row.by_user_id = ev.id, "MATCH", "0" * 64, user.id
