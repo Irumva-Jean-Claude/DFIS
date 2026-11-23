@@ -10,3 +10,6 @@ node_modules/
 *.jpg
 login_qa.mjs
 _run_login_qa.mjs
+
+# NSL-KDD training data (download separately; see ml/train_model.py)
+ml/data/

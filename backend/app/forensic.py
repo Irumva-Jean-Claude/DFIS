@@ -1,7 +1,7 @@
 """Forensic helpers: hashing, signature identification, safe metadata analysis, log parsing.
 Uploaded files are NEVER executed; archives are only listed, never extracted."""
 import hashlib, io, json, re, sys, zipfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -299,6 +299,55 @@ def detect_indicators(events, rules):
             if k and k.lower() in e["message"].lower():
                 alerts.append({"rule": "custom_keyword", "subject": k, "line": e["line_no"], "text": e["message"][:200]})
     return [{**a, "disclaimer": "Indicator requiring review; not proof of malicious or criminal activity."} for a in alerts[:200]]
+
+
+_IPV4 = re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b")
+
+
+def summarize_events(events, top=8, buckets=24):
+    """Aggregate normalized log events for the visual summary.
+
+    events: iterable of dicts with ts_utc, event_type, source, username, message.
+    Returns type breakdown, top users/sources/IPs, and an activity histogram.
+    """
+    by_type, users, sources, ips = Counter(), Counter(), Counter(), Counter()
+    fail_ips = Counter()
+    stamps = []
+    for e in events:
+        et = e.get("event_type") or "general"
+        by_type[et] += 1
+        if e.get("username"):
+            users[e["username"]] += 1
+        if e.get("source"):
+            sources[e["source"]] += 1
+        found = set(_IPV4.findall(e.get("message") or ""))
+        for ip in found:
+            ips[ip] += 1
+            if et == "auth_failure":
+                fail_ips[ip] += 1
+        if e.get("ts_utc"):
+            stamps.append((e["ts_utc"], et == "auth_failure"))
+
+    timeline = []
+    if stamps:
+        stamps.sort(key=lambda s: s[0])
+        first, last = stamps[0][0], stamps[-1][0]
+        span = max((last - first).total_seconds(), 60)
+        width = span / buckets
+        counts = [[0, 0] for _ in range(buckets)]
+        for ts, failed in stamps:
+            idx = min(int((ts - first).total_seconds() / width), buckets - 1)
+            counts[idx][0] += 1
+            counts[idx][1] += failed
+        timeline = [{"start": (first + timedelta(seconds=i * width)).isoformat(timespec="seconds") + "Z",
+                     "total": c[0], "failures": c[1]} for i, c in enumerate(counts)]
+
+    pairs = lambda c: [{"label": k, "value": v} for k, v in c.most_common(top)]
+    return {"by_type": pairs(by_type), "top_users": pairs(users), "top_sources": pairs(sources),
+            "top_ips": pairs(ips), "top_failed_ips": pairs(fail_ips), "timeline": timeline,
+            "first": stamps[0][0].isoformat() + "Z" if stamps else None,
+            "last": stamps[-1][0].isoformat() + "Z" if stamps else None,
+            "undated": sum(by_type.values()) - len(stamps)}
 
 
 def group_events(events):

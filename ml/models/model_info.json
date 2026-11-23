@@ -1,0 +1,9 @@
+{
+  "algorithm": "RandomForestClassifier(n_estimators=100, max_depth=20, random_state=42)",
+  "dataset": "NSL-KDD",
+  "train_rows": 125973,
+  "test_rows": 22544,
+  "test_accuracy": 0.7729,
+  "sklearn_version": "1.3.2",
+  "trained_at": "2026-11-23T09:39:03+00:00"
+}
