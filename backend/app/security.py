@@ -1,5 +1,5 @@
 """Authentication, RBAC, case-level access control and the hash-chained audit trail."""
-import hashlib, json, re, secrets
+import hashlib, json, re, secrets, threading
 from datetime import timedelta
 import jwt
 import pyotp
@@ -150,22 +150,34 @@ def _digest(prev, ev):
     return hashlib.sha256(s.encode()).hexdigest()
 
 
+_AUDIT_LOCK = threading.Lock()
+
+
 def audit(db, actor, action, otype=None, oid=None, outcome="success", **meta):
     clean = json.loads(json.dumps({k: v for k, v in meta.items() if k.lower() not in SENSITIVE}, default=str))
-    last = db.scalar(select(AuditEvent).order_by(AuditEvent.seq.desc()).limit(1))
-    ev = AuditEvent(ts=now(), actor_id=actor.id if actor else None, actor_name=actor.username if actor else None,
-                    action=action, object_type=otype, object_id=oid, outcome=outcome, meta=clean,
-                    prev_hash=last.hash if last else "0" * 64)
     from .db import uid
-    ev.event_id = uid()
-    ev.hash = _digest(ev.prev_hash, ev)
-    db.add(ev); db.commit()
+    # Serialize "read last hash -> append" so concurrent requests can't fork the chain.
+    with _AUDIT_LOCK:
+        last = db.scalar(select(AuditEvent).order_by(AuditEvent.seq.desc()).limit(1))
+        ev = AuditEvent(ts=now(), actor_id=actor.id if actor else None, actor_name=actor.username if actor else None,
+                        action=action, object_type=otype, object_id=oid, outcome=outcome, meta=clean,
+                        prev_hash=last.hash if last else "0" * 64)
+        ev.event_id = uid()
+        ev.hash = _digest(ev.prev_hash, ev)
+        db.add(ev); db.commit()
 
 
 def verify_audit_chain(db):
     prev, n = "0" * 64, 0
     for ev in db.scalars(select(AuditEvent).order_by(AuditEvent.seq)):
-        if ev.prev_hash != prev or ev.hash != _digest(prev, ev):
-            return {"valid": False, "broken_at_seq": ev.seq, "checked": n}
-        prev, n = ev.hash, n + 1
+        if ev.prev_hash != prev:
+            reason = "link to previous event does not match (event inserted, removed or reordered)"
+        elif ev.hash != _digest(prev, ev):
+            reason = "event content does not match its hash (event modified)"
+        else:
+            prev, n = ev.hash, n + 1
+            continue
+        return {"valid": False, "broken_at_seq": ev.seq, "event_id": ev.event_id, "action": ev.action,
+                "ts": ev.ts.isoformat(timespec="seconds") + "Z" if ev.ts else None,
+                "reason": reason, "checked": n}
     return {"valid": True, "checked": n}

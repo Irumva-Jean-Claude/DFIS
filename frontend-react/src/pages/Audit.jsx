@@ -49,9 +49,17 @@ export default function Audit() {
       </div>
 
       {chainStatus && (
-        <div className={`note ${chainStatus.ok ? '' : 'error'}`} style={{ marginBottom: 8 }}>
-          {chainStatus.ok ? `Chain intact — ${chainStatus.verified} events verified.` : `Chain broken at event ${chainStatus.broken_at}: ${chainStatus.detail}`}
-        </div>
+        chainStatus.valid ? (
+          <div className="note" style={{ marginBottom: 8, color: 'var(--green)', borderColor: 'rgba(16,185,129,.3)', background: 'var(--green-bg)' }}>
+            ✓ Audit chain intact — all {chainStatus.checked} events verified. No tampering detected.
+          </div>
+        ) : (
+          <div className="error" style={{ marginBottom: 8 }}>
+            ✗ Audit chain broken at event #{chainStatus.broken_at_seq}
+            {chainStatus.action && <> (<b>{chainStatus.action}</b>{chainStatus.ts && <>, {fmt(chainStatus.ts)}</>})</>}
+            : {chainStatus.reason}. {chainStatus.checked} earlier event(s) verified OK.
+          </div>
+        )
       )}
 
       <div className="card">

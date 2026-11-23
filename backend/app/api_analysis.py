@@ -24,6 +24,7 @@ from .forensic import (
     group_events,
     parse_ts,
     search_file_content,
+    summarize_events,
     DEFAULT_RULES,
     TOOL,
 )
@@ -384,6 +385,29 @@ def log_summary(
     )
 
     return [job_out(db, job) for job in rows]
+
+
+@log_r.get("/{eid}/stats")
+def log_stats(
+    eid: str,
+    u=Depends(require("evidence:read")),
+    db=Depends(get_db),
+):
+    """Visual summary (type breakdown, top entities, activity over time)
+    computed from the stored normalized events of one evidence item."""
+    e = get_evidence(db, u, eid)
+
+    rows = db.execute(
+        select(
+            LogEvent.ts_utc,
+            LogEvent.event_type,
+            LogEvent.source,
+            LogEvent.username,
+            LogEvent.message,
+        ).where(LogEvent.evidence_id == e.id)
+    ).mappings()
+
+    return summarize_events(dict(r) for r in rows)
 
 
 def _lf(eid, event_type, source, q, start, end):

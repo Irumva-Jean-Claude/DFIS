@@ -1,0 +1,20 @@
+# Secrets and local data must never be baked into the image
+.env
+backend/data/
+**/.secret_key
+# Local environments, caches and build output
+.venv/
+.venv-linux/
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+frontend-dist/
+.git/
+.vscode/
+# Dev / QA artefacts
+*.png
+*.jpg
+*.mjs
+test_login_qa.py
+scripts/
