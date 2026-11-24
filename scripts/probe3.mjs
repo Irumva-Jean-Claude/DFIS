@@ -5,8 +5,8 @@ page.on('console', m => console.log('[console]', m.text()));
 page.on('pageerror', e => console.log('[pageerror]', e.message));
 await page.goto('http://localhost:8000', { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(1500);
-await page.fill('#loginForm input[name=username]', 'irumva');
-await page.fill('#loginForm input[name=password]', 'irumvajc123');
+await page.fill('#loginForm input[name=username]', process.env.DFIS_ADMIN_USERNAME || 'admin');
+await page.fill('#loginForm input[name=password]', process.env.DFIS_TEST_ADMIN_PASSWORD);
 await page.click('#loginForm button[type=submit]');
 try { await page.waitForSelector('#mfaForm:not(.hidden)', { timeout: 8000 }); } catch { console.log('TIMEOUT waiting for MFA form'); }
 const state = await page.evaluate(() => {

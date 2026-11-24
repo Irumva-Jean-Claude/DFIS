@@ -42,7 +42,9 @@ Replace `<YOUR_REPO_URL>` with the real URL of the GitHub/GitLab repo
 
 ## STEP 2 — One-command setup (one time)
 
-This creates the virtual environment, installs every dependency, and creates `.env`:
+This creates the virtual environment, installs every dependency, and creates `.env`
+with **your own** random secret key and an initial admin password. The script prints
+that admin login at the end; write it down.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
@@ -54,7 +56,7 @@ Manual equivalent (only if the script fails for some reason):
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-Copy-Item .env.example .env
+Copy-Item .env.example .env   # then edit .env as described in STEP 3
 ```
 
 ---
@@ -65,18 +67,16 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Make the file contain **exactly** these lines (shared team credentials), then save and close:
+If you used `setup.ps1`, this is already done; skip to STEP 4.
+
+Otherwise, replace the two `CHANGE_ME` values with your own, then save and close:
 
 ```dotenv
-DFIS_SECRET_KEY=e2d5dade58680ca2b9b5a61d81cd6481c4d9129ce36c0f5a10003f9b600678e8
-DFIS_DATABASE_URL=sqlite:///./backend/data/dfis.db
-DFIS_ADMIN_USERNAME=irumva
-DFIS_ADMIN_PASSWORD=irumvajc123
-DFIS_MAX_UPLOAD_MB=50
-DFIS_ACCESS_TOKEN_MINUTES=30
-DFIS_RETENTION_DAYS=2555
-DFIS_ORG_NAME=DFIS Academic Prototype
+DFIS_SECRET_KEY=<paste the output of: python -c "import secrets; print(secrets.token_hex(32))">
+DFIS_ADMIN_PASSWORD=<choose a strong password>
 ```
+
+Every team member has **their own** secrets. Never share or commit `.env`.
 
 > Note: `DFIS_DATABASE_URL` must be exactly
 > `sqlite:///./backend/data/dfis.db` (three slashes, one dot before the slash).
@@ -126,7 +126,8 @@ Then open in the browser:
 - App: **http://localhost:8000**
 - API docs: **http://localhost:8000/docs**
 
-Login: **irumva** / **irumvajc123** (you must change the password at first login).
+Login: **admin** with the password printed by `setup.ps1` (or the one you put in `.env`).
+Change it inside DFIS after your first login.
 
 Stop the server: press **Ctrl+C** in the terminal.
 

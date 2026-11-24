@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import PasswordInput from '../components/PasswordInput'
 import { api, fmt } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
@@ -123,7 +124,7 @@ export default function Users() {
               <select name="role">{ROLES.map(r => <option key={r}>{r}</option>)}</select>
             </label>
             <label>Temporary password (min 10 characters, letters + digits)
-              <input name="password" type="password" required />
+              <PasswordInput name="password" autoComplete="new-password" required />
             </label>
             <button className="btn primary" style={{ width: '100%' }}>Create account</button>
           </form>

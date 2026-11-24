@@ -1069,3 +1069,22 @@ hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
   td, th { border-color: #ccc; color: #000; }
   .badge { border-color: #aaa; color: #333; background: #f5f5f5; }
 }
+
+/* ── Password field with show/hide toggle ─────────────────── */
+.pw-wrap { position: relative; display: block; width: 100%; }
+.pw-wrap > input { width: 100%; }
+.pw-toggle {
+  position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; margin: 0;
+  background: transparent; border: none; border-radius: 6px;
+  color: var(--muted2); cursor: pointer; transition: color .15s, background .15s;
+}
+.pw-toggle:hover { color: var(--text); background: rgba(255,255,255,.06); }
+.pw-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.nf-group .pw-toggle { color: rgba(34,211,238,.55); }
+.nf-group .pw-toggle:hover { color: #22d3ee; background: rgba(34,211,238,.08); }
+label > .pw-wrap { margin-top: 5px; }
+label > .pw-wrap > input {
+  color: var(--text); font-size: 14px; text-transform: none; font-weight: 400; letter-spacing: normal;
+}
