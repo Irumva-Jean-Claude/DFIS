@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PasswordInput from '../components/PasswordInput'
 import { api, setToken } from '../api'
 import { useAuth } from '../context/AuthContext'
 
@@ -51,7 +52,7 @@ function LoginForm({ onLogin }) {
       </div>
       <div className="nf-group">
         <span className="nf-label">Password</span>
-        <input className="nf-input" name="password" type="password" autoComplete="current-password" required placeholder="Enter password" />
+        <PasswordInput className="nf-input" name="password" autoComplete="current-password" required placeholder="Enter password" />
       </div>
       <button className="nf-btn" type="submit" disabled={loading}>
         {loading ? 'Authenticating…' : 'LOGIN'}

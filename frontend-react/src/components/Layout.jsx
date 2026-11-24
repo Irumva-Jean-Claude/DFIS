@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { api } from '../api'
 import Modal from './Modal'
+import PasswordInput from './PasswordInput'
 
 function SvgIcon({ name, size = 18 }) {
   const icons = {
@@ -71,8 +72,8 @@ function PwModal({ onClose, force }) {
     <Modal title="Change password" onClose={force ? null : onClose}>
       <form onSubmit={submit}>
         {force && <p className="error">You must change your temporary password before continuing.</p>}
-        <label>Current password<input name="current_password" type="password" required autoFocus /></label>
-        <label>New password (minimum 10 characters, letters + digits)<input name="new_password" type="password" required /></label>
+        <label>Current password<PasswordInput name="current_password" autoComplete="current-password" required autoFocus /></label>
+        <label>New password (minimum 10 characters, letters + digits)<PasswordInput name="new_password" autoComplete="new-password" required /></label>
         <button className="btn primary">Change password</button>
       </form>
     </Modal>
