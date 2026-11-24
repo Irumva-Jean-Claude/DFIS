@@ -187,11 +187,22 @@ def download(eid: str, u=Depends(require("evidence:read")), db=Depends(get_db)):
 
 
 # ---------------- custody ----------------
-def cust_out(db, c, acked):
+def _transfer_state(c, acked, cancelled):
+    if c.action != "TRANSFER":
+        return None
+    if c.id in acked:
+        return "acknowledged"
+    if c.id in cancelled:
+        return "cancelled"
+    return "pending"
+
+
+def cust_out(db, c, acked, cancelled=frozenset()):
     return {"id": c.id, "action": c.action, "from_user": uname(db, c.from_user_id), "to_user": uname(db, c.to_user_id),
-            "to_user_id": c.to_user_id, "by_user": uname(db, c.by_user_id), "reason": c.reason, "notes": c.notes,
+            "to_user_id": c.to_user_id, "from_user_id": c.from_user_id, "by_user_id": c.by_user_id,
+            "by_user": uname(db, c.by_user_id), "reason": c.reason, "notes": c.notes,
             "case_ref": db.get(Case, c.case_id).ref, "ref_event_id": c.ref_event_id, "created_at": iso(c.created_at),
-            "ack_status": ("acknowledged" if c.id in acked else "pending") if c.action == "TRANSFER" else None}
+            "ack_status": _transfer_state(c, acked, cancelled)}
 
 
 @custody_r.get("/{eid}")
@@ -199,8 +210,9 @@ def custody_history(eid: str, u=Depends(require("evidence:read")), db=Depends(ge
     e = get_evidence(db, u, eid)
     rows = db.scalars(select(CustodyEvent).where(CustodyEvent.evidence_id == e.id).order_by(CustodyEvent.created_at)).all()
     acked = {r.ref_event_id for r in rows if r.action == "ACKNOWLEDGED"}
+    cancelled = {r.ref_event_id for r in rows if r.action == "TRANSFER_CANCELLED"}
     audit(db, u, "custody_record_viewed", "evidence", e.id)
-    return {"evidence": ev_out(db, e), "events": [cust_out(db, c, acked) for c in rows]}
+    return {"evidence": ev_out(db, e), "events": [cust_out(db, c, acked, cancelled) for c in rows]}
 
 
 class Transfer(BaseModel):
@@ -227,7 +239,16 @@ def transfer(eid: str, b: Transfer, u=Depends(require("custody:transfer")), db=D
     c = cust(db, evidence_id=e.id, case_id=e.case_id, action="TRANSFER", from_user_id=e.custodian_id, to_user_id=to.id,
              by_user_id=u.id, reason=b.reason, notes=b.notes)
     e.status = "transfer_pending"
+    # A recipient must be able to see the case to acknowledge receipt; assign them if needed.
+    auto_assigned = False
+    already_assigned = db.scalar(select(CaseAssignment.id).where(
+        CaseAssignment.case_id == e.case_id, CaseAssignment.user_id == to.id))
+    if to.role != "admin" and not already_assigned and db.get(Case, e.case_id).created_by != to.id:
+        db.add(CaseAssignment(case_id=e.case_id, user_id=to.id))
+        auto_assigned = True
     db.commit()
+    if auto_assigned:
+        audit(db, u, "case_assigned", "case", e.case_id, user=to.username, reason="custody transfer recipient")
     audit(db, u, "custody_transfer", "evidence", e.id, to=to.username)
     email_utils.notify_custody_transfer(to.email, to.full_name, e.ref, u.full_name, b.reason)
     return {"ok": True, "event_id": c.id}
@@ -235,19 +256,53 @@ def transfer(eid: str, b: Transfer, u=Depends(require("custody:transfer")), db=D
 
 @custody_r.post("/{eid}/acknowledge/{event_id}")
 def acknowledge(eid: str, event_id: str, u=Depends(require("evidence:read")), db=Depends(get_db)):
-    e = get_evidence(db, u, eid)
     t = db.get(CustodyEvent, event_id)
-    if not t or t.evidence_id != e.id or t.action != "TRANSFER":
-        raise HTTPException(404, "Transfer not found")
-    if t.to_user_id != u.id:
+    if t and t.evidence_id == eid and t.action == "TRANSFER" and t.to_user_id == u.id:
+        e = db.get(Evidence, eid)  # the named recipient may acknowledge even without prior case access
+    else:
+        e = get_evidence(db, u, eid)  # 404 for users without access (no existence leak)
+        if not t or t.evidence_id != e.id or t.action != "TRANSFER":
+            raise HTTPException(404, "Transfer not found")
         raise HTTPException(403, "Only the receiving custodian can acknowledge this transfer")
     if db.scalar(select(CustodyEvent.id).where(CustodyEvent.ref_event_id == t.id, CustodyEvent.action == "ACKNOWLEDGED")):
         raise HTTPException(409, "Already acknowledged")
+    if db.scalar(select(CustodyEvent.id).where(CustodyEvent.ref_event_id == t.id, CustodyEvent.action == "TRANSFER_CANCELLED")):
+        raise HTTPException(409, "This transfer was cancelled")
     cust(db, evidence_id=e.id, case_id=e.case_id, action="ACKNOWLEDGED", from_user_id=t.from_user_id, to_user_id=u.id,
          by_user_id=u.id, reason="Receipt acknowledged", ref_event_id=t.id)
     e.custodian_id, e.status = u.id, "in_custody"
     db.commit()
     audit(db, u, "custody_acknowledged", "evidence", e.id)
+    return {"ok": True}
+
+
+class CancelTransfer(BaseModel):
+    reason: str = Field(min_length=5, max_length=1000)
+
+
+@custody_r.post("/{eid}/cancel/{event_id}")
+def cancel_transfer(eid: str, event_id: str, b: CancelTransfer, u=Depends(require("custody:transfer")),
+                    db=Depends(get_db)):
+    """Cancel a pending transfer. History is never edited: a TRANSFER_CANCELLED event is appended
+    and the evidence returns to its current custodian."""
+    e = get_evidence(db, u, eid)
+    t = db.get(CustodyEvent, event_id)
+    if not t or t.evidence_id != e.id or t.action != "TRANSFER":
+        raise HTTPException(404, "Transfer not found")
+    if u.role not in ("admin", "lead") and u.id not in (t.by_user_id, t.from_user_id):
+        raise HTTPException(403, "Only the sender of the transfer (or a lead/admin) can cancel it")
+    done = db.scalar(select(CustodyEvent.action).where(
+        CustodyEvent.ref_event_id == t.id, CustodyEvent.action.in_(("ACKNOWLEDGED", "TRANSFER_CANCELLED"))))
+    if done == "ACKNOWLEDGED":
+        raise HTTPException(409, "This transfer was already acknowledged and can no longer be cancelled")
+    if done == "TRANSFER_CANCELLED":
+        raise HTTPException(409, "This transfer was already cancelled")
+    cust(db, evidence_id=e.id, case_id=e.case_id, action="TRANSFER_CANCELLED", from_user_id=t.to_user_id,
+         to_user_id=t.from_user_id, by_user_id=u.id, reason=b.reason, ref_event_id=t.id)
+    e.status = "in_custody"
+    db.commit()
+    audit(db, u, "custody_transfer_cancelled", "evidence", e.id, transfer_event=t.id,
+          intended_recipient=uname(db, t.to_user_id), reason=b.reason)
     return {"ok": True}
 
 
@@ -361,5 +416,7 @@ def virustotal_scan(eid: str, u=Depends(require("evidence:read")), db=Depends(ge
 
     except HTTPException:
         raise
+    except (requests.ConnectionError, requests.Timeout):
+        raise HTTPException(503, "Could not reach VirusTotal. Check your internet connection and try again.")
     except Exception as ex:
-        raise HTTPException(502, f"VirusTotal request failed: {ex}")
+        raise HTTPException(502, f"VirusTotal request failed ({type(ex).__name__}). Please try again later.")

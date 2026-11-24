@@ -1,6 +1,15 @@
-"""PDF forensic report generation (ReportLab)."""
+"""PDF forensic report generation (ReportLab), with tamper-evident sealing.
+
+Every issued PDF is fingerprinted (SHA-256) and sealed with an HMAC-SHA256
+signature using a server-held key. Uploading a PDF to /reports/verify proves
+whether it is byte-for-byte the report DFIS issued.
+"""
+import hashlib
+import hmac
+import io
+import re
 from xml.sax.saxutils import escape
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
@@ -45,6 +54,26 @@ def preview(b: ReportIn, u=Depends(require("report:create")), db=Depends(get_db)
                           "file_analysis": "yes" if x["fa"] else "no", "log_analysis": "yes" if x["la"] else "no",
                           "custody_events": len(x["cu"])} for x in ev],
             "timeline_events": len(tl), "next_version": (db.scalar(select(func.count(Report.id)).where(Report.case_id == c.id)) or 0) + 1}
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _seal_payload(r):
+    return f"{r.id}|{r.ref}|{r.version}|{r.case_id}|{r.sha256}|{iso(r.signed_at)}".encode()
+
+
+def sign_report(r):
+    return hmac.new(config.REPORT_SIGNING_KEY.encode(), _seal_payload(r), hashlib.sha256).hexdigest()
+
+
+def seal_valid(r):
+    return bool(r.sha256 and r.signature and hmac.compare_digest(r.signature, sign_report(r)))
 
 
 def P(s):
@@ -101,6 +130,10 @@ def build_pdf(path, db, case, b, author, ref, version, rid):
     para("8. Methods and tool versions", H2); para(f"{TOOL}; " + ", ".join(f"{k} {v}" for k, v in _lib_versions().items()))
     para("9. Limitations and unresolved questions", H2); para(b.limitations or "None recorded by the author.")
     para("10. Investigator notes and conclusions (author's interpretation)", H2); para(b.notes or "(none)"); para(b.conclusions or "(no conclusions recorded)")
+    para("11. Report authenticity", H2)
+    para(f"This report is sealed by DFIS at issue time: its SHA-256 fingerprint is recorded and signed (HMAC-SHA256) "
+         f"under report ID {rid}. To confirm this copy is authentic and unmodified, upload the PDF in DFIS under "
+         f"Forensic Reports > Verify report. Any change to the file, however small, will fail verification.", S)
     para("Disclaimer: Prototype output for academic use. It is not forensically certified or legally validated. Observations are separated from interpretations; incomplete evidence may limit conclusions.", S)
 
     def footer(cv, doc):
@@ -121,9 +154,13 @@ def generate(b: ReportIn, u=Depends(require("report:create")), db=Depends(get_db
         db.rollback()
         audit(db, u, "report_generation", "case", c.id, "failure", error=type(ex).__name__)
         raise HTTPException(500, "Report generation failed")
+    # Seal the issued file: fingerprint it and sign the fingerprint.
+    r.sha256 = sha256_file(config.REPORTS / r.filename)
+    r.signed_at = now()
+    r.signature = sign_report(r)
     db.commit()
-    audit(db, u, "report_generated", "report", r.id, ref=r.ref, version=version)
-    return {"id": r.id, "ref": r.ref, "version": version}
+    audit(db, u, "report_generated", "report", r.id, ref=r.ref, version=version, sha256=r.sha256)
+    return {"id": r.id, "ref": r.ref, "version": version, "sha256": r.sha256}
 
 
 @reports_r.get("")
@@ -131,7 +168,50 @@ def list_reports(u=Depends(require("report:read")), db=Depends(get_db), case_id:
     st = select(Report, Case.ref).join(Case, Case.id == Report.case_id).where(case_filter(u)).order_by(Report.created_at.desc()).limit(200)
     if case_id:
         st = st.where(Report.case_id == case_id)
-    return [{"id": r.id, "ref": r.ref, "case_ref": cr, "version": r.version, "by_user": uname(db, r.by_user_id), "created_at": iso(r.created_at)} for r, cr in db.execute(st)]
+    return [{"id": r.id, "ref": r.ref, "case_ref": cr, "version": r.version, "by_user": uname(db, r.by_user_id),
+             "created_at": iso(r.created_at), "sha256": r.sha256, "signed": seal_valid(r)} for r, cr in db.execute(st)]
+
+
+def _claimed_ref(data):
+    """Best effort: read which report ID/ref a (possibly modified) PDF claims to be."""
+    try:
+        from pypdf import PdfReader
+        text = " ".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(data)).pages[:3])
+        m = re.search(r"RPT-\d{4}-\d{4}", text)
+        return m.group(0) if m else None
+    except Exception:
+        return None
+
+
+@reports_r.post("/verify")
+async def verify_report(file: UploadFile = File(...), u=Depends(require("report:read")), db=Depends(get_db)):
+    data = await file.read(config.MAX_UPLOAD_BYTES + 1)
+    if len(data) > config.MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "File too large")
+    digest = hashlib.sha256(data).hexdigest()
+    r = db.scalar(select(Report).where(Report.sha256 == digest))
+
+    if r and seal_valid(r):
+        c = db.get(Case, r.case_id)
+        audit(db, u, "report_verified", "report", r.id, "success", sha256=digest)
+        return {"authentic": True, "sha256": digest, "ref": r.ref, "version": r.version,
+                "case_ref": c.ref if c else None, "issued_by": uname(db, r.by_user_id),
+                "issued_at": iso(r.created_at), "signed_at": iso(r.signed_at),
+                "message": "Authentic: this file is exactly the report issued by DFIS and has not been modified."}
+
+    claimed = _claimed_ref(data)
+    original = db.scalar(select(Report).where(Report.ref == claimed)) if claimed else None
+    if r:  # fingerprint known but the seal no longer checks out (database record altered)
+        reason = "The report record's signature is invalid; the stored seal may have been tampered with."
+    elif original:
+        reason = (f"This file claims to be {original.ref} v{original.version}, but its content does not match "
+                  f"the report DFIS issued. It has been modified.")
+    else:
+        reason = "This file was not issued by DFIS, or it has been modified."
+    audit(db, u, "report_verified", "report", original.id if original else None, "failure",
+          sha256=digest, claimed_ref=claimed)
+    return {"authentic": False, "sha256": digest, "claimed_ref": claimed,
+            "expected_sha256": original.sha256 if original else None, "message": reason}
 
 
 @reports_r.get("/{rid}/download")
@@ -139,5 +219,9 @@ def download(rid: str, u=Depends(require("report:read")), db=Depends(get_db)):
     r = db.scalar(select(Report).join(Case, Case.id == Report.case_id).where(Report.id == rid, case_filter(u)))
     if not r:
         raise HTTPException(404, "Report not found")
+    path = config.REPORTS / r.filename
+    if r.sha256 and sha256_file(path) != r.sha256:
+        audit(db, u, "report_downloaded", "report", r.id, "failure", error="stored file does not match its seal")
+        raise HTTPException(409, "The stored report file no longer matches its seal and may have been altered.")
     audit(db, u, "report_downloaded", "report", r.id)
     return FileResponse(config.REPORTS / r.filename, media_type="application/pdf", filename=f"{r.ref}_v{r.version}.pdf")

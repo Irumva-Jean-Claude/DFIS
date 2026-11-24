@@ -8,7 +8,8 @@ import Modal from '../components/Modal'
 import KeyValue from '../components/KeyValue'
 
 export default function Custody() {
-  const { can } = useAuth()
+  const { can, me } = useAuth()
+  const [cancelling, setCancelling] = useState(null)
   const toast = useToast()
   const [cases, setCases] = useState([])
   const [caseId, setCaseId] = useState('')
@@ -45,6 +46,19 @@ export default function Custody() {
     try {
       await api('/chain-of-custody/' + selected + '/acknowledge/' + eventId, { method: 'POST' })
       toast('Transfer acknowledged'); loadRecord(selected)
+    } catch (err) { toast(err.message, true) }
+  }
+
+  const canCancel = r => can('custody:transfer') &&
+    (['admin', 'lead'].includes(me?.role) || [r.by_user_id, r.from_user_id].includes(me?.id))
+
+  const cancelTransfer = async e => {
+    e.preventDefault()
+    const reason = new FormData(e.target).get('reason')
+    try {
+      await api('/chain-of-custody/' + selected + '/cancel/' + cancelling.id, { method: 'POST', body: { reason } })
+      toast('Transfer cancelled — evidence returned to ' + (cancelling.from_user || 'the custodian'))
+      setCancelling(null); loadRecord(selected)
     } catch (err) { toast(err.message, true) }
   }
 
@@ -96,15 +110,39 @@ export default function Custody() {
               { label: 'To', render: r => r.to_user || '—' },
               { label: 'Reason', render: r => r.reason },
               {
-                label: 'Status', render: r => r.ack_status ? (
-                  r.ack_status === 'pending'
-                    ? <button className="btn sm" onClick={() => acknowledge(r.id)}>Acknowledge</button>
-                    : <Badge value="acknowledged" />
-                ) : null
+                label: 'Status', render: r => {
+                  if (!r.ack_status) return null
+                  if (r.ack_status !== 'pending') return <Badge value={r.ack_status} />
+                  const mine = r.to_user_id === me?.id
+                  return (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {mine
+                        ? <button className="btn sm primary" onClick={() => acknowledge(r.id)}>Acknowledge</button>
+                        : <span className="muted" style={{ fontSize: 12 }}>Awaiting {r.to_user || 'recipient'}</span>}
+                      {canCancel(r) && <button className="btn sm" onClick={() => setCancelling(r)}>Cancel transfer</button>}
+                    </div>
+                  )
+                }
               },
             ]}
             rows={record.events} empty="No custody events." />
         </div>
+      )}
+
+      {cancelling && (
+        <Modal title="Cancel custody transfer" onClose={() => setCancelling(null)}>
+          <form onSubmit={cancelTransfer}>
+            <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+              The transfer to <b>{cancelling.to_user}</b> will be cancelled and the evidence stays with{' '}
+              <b>{cancelling.from_user || 'the current custodian'}</b>. Nothing is deleted: a
+              TRANSFER_CANCELLED entry with your reason is added to the custody chain and the audit trail.
+            </p>
+            <label>Reason for cancelling
+              <input name="reason" required minLength={5} maxLength={1000} placeholder="e.g. Wrong recipient selected" autoFocus />
+            </label>
+            <button className="btn primary">Cancel transfer</button>
+          </form>
+        </Modal>
       )}
 
       {transferOpen && (

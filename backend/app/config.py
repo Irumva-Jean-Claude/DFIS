@@ -30,6 +30,18 @@ if not SECRET_KEY:  # dev fallback: generated once and persisted locally
         _kf.chmod(0o600)
     SECRET_KEY = _kf.read_text().strip()
 
+# Separate key for sealing PDF reports, so rotating the login key never invalidates issued reports.
+_rkf = DATA_DIR / ".report_signing_key"
+REPORT_SIGNING_KEY = E("DFIS_REPORT_SIGNING_KEY")
+if not REPORT_SIGNING_KEY:
+    if not _rkf.exists():
+        _rkf.write_text(secrets.token_hex(32))
+        try:
+            _rkf.chmod(0o600)
+        except OSError:
+            pass
+    REPORT_SIGNING_KEY = _rkf.read_text().strip()
+
 ORIGINALS = DATA_DIR / "storage" / "originals"
 WORKING = DATA_DIR / "storage" / "working"
 REPORTS = DATA_DIR / "storage" / "reports"
