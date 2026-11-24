@@ -44,7 +44,7 @@ def test_evidence_hash_integrity_and_immutability(client, users):
     e = r.json(); assert e["sha256"] == hashlib.sha256(data).hexdigest()
     assert "storage_name" not in e
     assert client.post(f"{A}/integrity/{e['id']}/verify", headers=h).json()["result"] == "MATCH"
-    f = next(config.ORIGINALS.iterdir()); assert not (f.stat().st_mode & stat.S_IWUSR)
+    f = next(p for p in config.ORIGINALS.iterdir() if p.read_bytes() == data); assert not (f.stat().st_mode & stat.S_IWUSR)
     f.chmod(0o600); f.write_bytes(b"tampered"); f.chmod(0o444)
     assert client.post(f"{A}/integrity/{e['id']}/verify", headers=h).json()["result"] == "MISMATCH"
     assert client.get(f"{A}/evidence/{e['id']}", headers=users["lead2"]).status_code == 404

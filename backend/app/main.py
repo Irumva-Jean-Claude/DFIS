@@ -37,6 +37,7 @@ def startup():
             def _cols(tbl): return [r[1] for r in conn.exec_driver_sql(f"PRAGMA table_info({tbl})")]
             user_cols = _cols("users")
             ev_cols   = _cols("evidence")
+            rpt_cols  = _cols("reports")
             migrations = [
                 ("totp_secret",      user_cols, "ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)"),
                 ("mfa_enabled",      user_cols, "ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN DEFAULT 0"),
@@ -47,6 +48,9 @@ def startup():
                 ("vt_total_engines", ev_cols,   "ALTER TABLE evidence ADD COLUMN vt_total_engines INTEGER"),
                 ("vt_message",       ev_cols,   "ALTER TABLE evidence ADD COLUMN vt_message TEXT"),
                 ("vt_scanned_at",    ev_cols,   "ALTER TABLE evidence ADD COLUMN vt_scanned_at DATETIME"),
+                ("sha256",           rpt_cols,  "ALTER TABLE reports ADD COLUMN sha256 VARCHAR(64)"),
+                ("signature",        rpt_cols,  "ALTER TABLE reports ADD COLUMN signature VARCHAR(64)"),
+                ("signed_at",        rpt_cols,  "ALTER TABLE reports ADD COLUMN signed_at DATETIME"),
             ]
             for col, existing, sql in migrations:
                 if col not in existing:

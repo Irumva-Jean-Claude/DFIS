@@ -168,7 +168,7 @@ class CustodyEvent(Base):  # append-only
     id: Mapped[PkStr]
     evidence_id: Mapped[FkStr["evidence.id", dict(index=True)]]
     case_id: Mapped[FkStr["cases.id"]]
-    action = mapped_column(String(30))  # INGESTED / TRANSFER / ACKNOWLEDGED / CORRECTION_NOTE
+    action = mapped_column(String(30))  # INGESTED / TRANSFER / ACKNOWLEDGED / TRANSFER_CANCELLED / CORRECTION_NOTE
     from_user_id: Mapped[FkStr["users.id", dict(nullable=True)]]
     to_user_id: Mapped[FkStr["users.id", dict(nullable=True)]]
     by_user_id: Mapped[FkStr["users.id"]]
@@ -241,6 +241,10 @@ class Report(Base):
     filename = mapped_column(String(64))
     by_user_id: Mapped[FkStr["users.id"]]
     created_at = mapped_column(DateTime, default=now)
+    # Integrity seal: SHA-256 of the issued PDF and an HMAC-SHA256 signature over it.
+    sha256 = mapped_column(String(64), nullable=True, index=True)
+    signature = mapped_column(String(64), nullable=True)
+    signed_at = mapped_column(DateTime, nullable=True)
 
 
 class AuditEvent(Base):  # append-only, hash-chained

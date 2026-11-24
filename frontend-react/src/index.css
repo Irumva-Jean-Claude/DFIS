@@ -310,7 +310,7 @@ tbody tr:last-child td { border-bottom: none; }
 /* Blue — medium / default */
 .b-medium { color: var(--blue); background: var(--blue-bg); border-color: rgba(59,130,246,.3); }
 /* Muted — low/closed/inactive */
-.b-low, .b-closed, .b-inactive {
+.b-low, .b-closed, .b-inactive, .b-cancelled, .b-transfer_cancelled {
   color: var(--muted2); background: var(--panel3); border-color: var(--line2);
 }
 /* Violet — archived/analyst */

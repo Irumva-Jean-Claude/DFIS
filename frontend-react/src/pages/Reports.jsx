@@ -42,6 +42,60 @@ function PreviewModal({ preview, onClose, onGenerate }) {
   )
 }
 
+function VerifyPanel() {
+  const toast = useToast()
+  const [file, setFile] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const verify = async e => {
+    e.preventDefault()
+    if (!file) return
+    setBusy(true); setResult(null)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      setResult(await api('/reports/verify', { method: 'POST', form: fd }))
+    } catch (err) { toast(err.message, true) }
+    finally { setBusy(false) }
+  }
+
+  const ok = result?.authentic
+  return (
+    <div className="card">
+      <h2>Verify report</h2>
+      <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+        Upload a PDF report to check that it was issued by DFIS and has not been modified since.
+        Any change to the file, even one character, fails verification.
+      </p>
+      <form className="row" onSubmit={verify}>
+        <input type="file" accept="application/pdf,.pdf" onChange={e => { setFile(e.target.files[0] || null); setResult(null) }} />
+        <button className="btn primary" disabled={!file || busy}>{busy ? 'Verifying…' : 'Verify'}</button>
+      </form>
+      {result && (
+        <div style={{
+          marginTop: 14, padding: '14px 18px', borderRadius: 'var(--radius-sm)', fontSize: 13, lineHeight: 1.7,
+          border: `1px solid ${ok ? 'rgba(16,185,129,.35)' : 'rgba(244,63,94,.35)'}`,
+          background: ok ? 'var(--green-bg)' : 'var(--red-bg)',
+        }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: ok ? 'var(--green)' : 'var(--red)', marginBottom: 4 }}>
+            {ok ? '✓ Authentic report' : '✗ Verification failed'}
+          </div>
+          <div>{result.message}</div>
+          {ok && (
+            <div className="muted" style={{ marginTop: 6 }}>
+              {result.ref} v{result.version} · case {result.case_ref} · issued by {result.issued_by} on {fmt(result.issued_at)}
+            </div>
+          )}
+          <div className="muted" style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>
+            SHA-256 of uploaded file: {result.sha256}
+            {result.expected_sha256 && <><br />SHA-256 of issued report: {result.expected_sha256}</>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Reports() {
   const { can } = useAuth()
   const toast = useToast()
@@ -99,10 +153,15 @@ export default function Reports() {
             { label: 'Version', render: r => `v${r.version}` },
             { label: 'By', render: r => r.by_user },
             { label: 'Created', render: r => fmt(r.created_at) },
+            { label: 'Seal', render: r => r.signed
+              ? <span title={'SHA-256: ' + r.sha256} style={{ color: 'var(--green)', fontWeight: 600 }}>✓ Sealed</span>
+              : <span className="muted" title="Generated before report sealing was enabled">Not sealed</span> },
             { label: '', render: r => <button className="btn sm" onClick={() => download('/reports/' + r.id + '/download', `${r.ref}_v${r.version}.pdf`)}>PDF</button> },
           ]}
           rows={reports} empty="No reports generated yet." />
       </div>
+
+      {can('report:read') && <VerifyPanel />}
 
       {preview && <PreviewModal preview={preview} onClose={() => setPreview(null)} onGenerate={generate} />}
     </>
