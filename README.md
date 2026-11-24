@@ -10,7 +10,7 @@ In a **PowerShell** terminal at the project root:
 powershell -ExecutionPolicy Bypass -File scripts\setup.ps1        # once: venv + deps + .env
 powershell -ExecutionPolicy Bypass -File scripts\start_server.ps1 # every time: run server
 ```
-Then open http://localhost:8000 and log in with the shared admin credentials from `.env`
+Then open http://localhost:8000 and log in with the admin credentials from your `.env`
 (`DFIS_ADMIN_USERNAME` / `DFIS_ADMIN_PASSWORD`). Stop the server with Ctrl+C.
 
 <details><summary>Manual steps (any OS)</summary>

@@ -18,8 +18,8 @@ cd c:\Users\JClaude\OneDrive\Desktop\dfis\dfis
 - Web UI:  http://localhost:8000
 - API docs: http://localhost:8000/docs  (interactive OpenAPI — you can call every endpoint from there)
 
-Log in with the admin account from `.env` (default in your `.env`):
-`irumva / irumvajc123`. You will be forced to change it at first login if it's a fresh DB.
+Log in with the admin account from your `.env` (`DFIS_ADMIN_USERNAME` / `DFIS_ADMIN_PASSWORD`,
+printed by `scripts\setup.ps1`). Change the password inside DFIS after the first login.
 
 ### Roles and what they may do (RBAC)
 

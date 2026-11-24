@@ -24,8 +24,23 @@ BASE = "http://localhost:8000/api/v1"
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "test-data"
 
-ADMIN_USER = "irumva"
-ADMIN_PASS = "irumvajc123"
+def _env(name):
+    """Read a setting from the environment, falling back to the project's .env file."""
+    import os
+    if os.environ.get(name):
+        return os.environ[name]
+    env = ROOT / ".env"
+    if env.exists():
+        for line in env.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith(name + "="):
+                return line.split("=", 1)[1].strip().strip("\"'")
+    return None
+
+
+# Credentials are never stored in code. Set DFIS_TEST_ADMIN_PASSWORD (the admin's
+# *current* password) or you will be asked for it.
+ADMIN_USER = _env("DFIS_ADMIN_USERNAME") or "admin"
+ADMIN_PASS = _env("DFIS_TEST_ADMIN_PASSWORD") or __import__("getpass").getpass(f"Password for DFIS admin '{ADMIN_USER}': ")
 
 fails = []
 
